@@ -1,0 +1,17 @@
+#
+# Normal rules
+#
+.*
+*.o
+*.o.*
+*.a
+*.s
+*.ko
+*.mod
+*.mod.c
+*.i
+*.lst
+*.symtypes
+*.order
+modules.builtin
+Module.symvers

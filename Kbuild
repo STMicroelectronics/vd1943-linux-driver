@@ -1,0 +1,1 @@
+obj-$(CONFIG_DRIVER_VD1941)     += vd1941.o
