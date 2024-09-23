@@ -920,6 +920,10 @@ static int vd1941_init_controls(struct vd1941 *sensor)
 {
 	const struct v4l2_ctrl_ops *ops = &vd1941_ctrl_ops;
 	struct v4l2_ctrl_handler *hdl = &sensor->ctrl_handler;
+#if KERNEL_VERSION(5, 8, 0) > LINUX_VERSION_CODE
+#else
+	struct v4l2_fwnode_device_properties fwnode_props;
+#endif
 	struct v4l2_ctrl *ctrl;
 	int ret;
 
@@ -1011,6 +1015,18 @@ static int vd1941_init_controls(struct vd1941 *sensor)
 	}
 
 	v4l2_ctrl_cluster(2, &sensor->hflip_ctrl);
+
+#if KERNEL_VERSION(5, 8, 0) > LINUX_VERSION_CODE
+#else
+	/* Optional controls coming from fwnode (e.g. rotation, orientation). */
+	ret = v4l2_fwnode_device_parse(&sensor->i2c_client->dev, &fwnode_props);
+	if (ret)
+		goto free_ctrls;
+
+	ret = v4l2_ctrl_new_fwnode_properties(hdl, ops, &fwnode_props);
+	if (ret)
+		goto free_ctrls;
+#endif
 
 	sensor->sd.ctrl_handler = hdl;
 
