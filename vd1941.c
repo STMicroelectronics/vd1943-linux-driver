@@ -695,7 +695,11 @@ static int vd1941_g_volatile_ctrl(struct v4l2_ctrl *ctrl)
 	}
 
 	pm_runtime_mark_last_busy(&client->dev);
+#if KERNEL_VERSION(6, 9, 0) > LINUX_VERSION_CODE
 	pm_runtime_put_autosuspend(&client->dev);
+#else
+	__pm_runtime_put_autosuspend(&client->dev);
+#endif
 
 	return ret;
 }
@@ -789,7 +793,11 @@ static int vd1941_s_ctrl(struct v4l2_ctrl *ctrl)
 	}
 
 	pm_runtime_mark_last_busy(&client->dev);
+#if KERNEL_VERSION(6, 9, 0) > LINUX_VERSION_CODE
 	pm_runtime_put_autosuspend(&client->dev);
+#else
+	__pm_runtime_put_autosuspend(&client->dev);
+#endif
 
 	return ret;
 }
@@ -1107,7 +1115,11 @@ static int vd1941_s_stream(struct v4l2_subdev *sd, int enable)
 	} else {
 		vd1941_stream_off(sensor);
 		pm_runtime_mark_last_busy(&client->dev);
+#if KERNEL_VERSION(6, 9, 0) > LINUX_VERSION_CODE
 		pm_runtime_put_autosuspend(&client->dev);
+#else
+		__pm_runtime_put_autosuspend(&client->dev);
+#endif
 	}
 
 #if KERNEL_VERSION(4, 20, 0) > LINUX_VERSION_CODE
@@ -2003,7 +2015,11 @@ static int vd1941_probe(struct i2c_client *client)
 
 	/* Sensor could now be powered off (after the autosuspend delay) */
 	pm_runtime_mark_last_busy(dev);
+#if KERNEL_VERSION(6, 9, 0) > LINUX_VERSION_CODE
 	pm_runtime_put_autosuspend(dev);
+#else
+	__pm_runtime_put_autosuspend(dev);
+#endif
 
 	dev_info(&client->dev, "Successfully probe vd1941 sensor");
 
