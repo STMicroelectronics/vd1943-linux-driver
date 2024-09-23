@@ -1164,7 +1164,8 @@ static const struct v4l2_subdev_video_ops vd1941_video_ops = {
  * Pad ops
  */
 
-/* Media bus code is dependent of :
+/*
+ * Media bus code is dependent of :
  *      - 8bits, 10bits or 12bits output
  *      - shutter mode : GS or RS
  *      - H/V flips parameters in case of RGB (RS mode)
@@ -1389,6 +1390,7 @@ static int vd1941_init_cfg(struct v4l2_subdev *sd,
 	vd1941_update_img_pad_format(sensor, &vd1941_supported_modes[def_mode],
 				     vd1941_configs[VD1941_GS_MODE][0].mbus_code,
 				     &sensor->active_fmt);
+
 	return 0;
 }
 
@@ -1569,6 +1571,7 @@ static int vd1941_power_off(struct vd1941 *sensor)
 	clk_disable_unprepare(sensor->xclk);
 	gpiod_set_value_cansleep(sensor->reset_gpio, 1);
 	regulator_bulk_disable(ARRAY_SIZE(sensor->supplies), sensor->supplies);
+
 	return 0;
 }
 
@@ -1639,7 +1642,8 @@ static int vd1941_check_csi_conf(struct vd1941 *sensor,
 		goto done;
 	}
 
-	/* Prepare Output Interface conf based on lane settings
+	/*
+	 * Prepare Output Interface conf based on lane settings
 	 * logical to physical lane conversion (+ pad remaining slots)
 	 */
 	for (l = 0; l < n_lanes; l++)
@@ -1846,7 +1850,7 @@ static int vd1941_detect(struct vd1941 *sensor)
 
 	model = (uintptr_t)device_get_match_data(dev);
 
-	vd1941_read(sensor, VD1941_REG_MODEL_ID, &model_id, &ret);
+	ret = vd1941_read(sensor, VD1941_REG_MODEL_ID, &model_id, NULL);
 	if (ret)
 		return ret;
 
@@ -1855,7 +1859,7 @@ static int vd1941_detect(struct vd1941 *sensor)
 		return -ENODEV;
 	}
 
-	vd1941_read(sensor, VD1941_REG_ROM_REVISION, &rom_version, &ret);
+	ret = vd1941_read(sensor, VD1941_REG_ROM_REVISION, &rom_version, NULL);
 	if (ret)
 		return ret;
 
@@ -1865,7 +1869,8 @@ static int vd1941_detect(struct vd1941 *sensor)
 		return -ENODEV;
 	}
 
-	vd1941_read(sensor, VD1941_REG_CFA_SELECTION, &optical_version, &ret);
+	ret = vd1941_read(sensor, VD1941_REG_CFA_SELECTION, &optical_version,
+			  NULL);
 	if (ret)
 		return ret;
 
@@ -1925,6 +1930,7 @@ static int vd1941_subdev_init(struct vd1941 *sensor)
 
 err_media:
 	media_entity_cleanup(&sensor->sd.entity);
+
 	return ret;
 }
 
@@ -2031,6 +2037,7 @@ err_power_off:
 	pm_runtime_disable(dev);
 	pm_runtime_put_noidle(dev);
 	vd1941_power_off(sensor);
+
 	return ret;
 }
 
@@ -2050,6 +2057,7 @@ static void vd1941_remove(struct i2c_client *client)
 		vd1941_power_off(sensor);
 	pm_runtime_set_suspended(&client->dev);
 #if KERNEL_VERSION(6, 1, 0) > LINUX_VERSION_CODE
+
 	return 0;
 #endif
 }
