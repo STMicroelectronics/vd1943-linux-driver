@@ -133,15 +133,15 @@ int dev_err_probe(const struct device *dev, int err, const char *fmt, ...)
 #define VD1941_GPIOX_GPIO_IN				0x03
 #define VD1941_GPIOX_FSYNC_IN				0x05
 #define VD1941_REG_SENSOR_CONFIGURATION			CCI_REG32_LE(0x0b40)
-#define VD1941_CONFIG_GS_RGBNIR_RAW8			0x01
-#define VD1941_CONFIG_GS_RGBNIR_RAW10			0x02
+#define VD1941_CONFIG_GS_NATIVE_RAW8			0x01
+#define VD1941_CONFIG_GS_NATIVE_RAW10			0x02
 #define VD1941_CONFIG_GS_RGB_RAW8			0x05
 #define VD1941_CONFIG_GS_RGB_RAW10			0x06
 #define VD1941_CONFIG_GS_IR_RAW8			0x0f
 #define VD1941_CONFIG_GS_IR_RAW10			0x10
-#define VD1941_CONFIG_RS_RGBNIR_RAW8			0x1a
-#define VD1941_CONFIG_RS_RGBNIR_RAW10			0x1b
-#define VD1941_CONFIG_RS_RGBNIR_RAW12			0x1c
+#define VD1941_CONFIG_RS_NATIVE_RAW8			0x1a
+#define VD1941_CONFIG_RS_NATIVE_RAW10			0x1b
+#define VD1941_CONFIG_RS_NATIVE_RAW12			0x1c
 #define VD1941_CONFIG_RS_RGB_RAW8			0x1d
 #define VD1941_CONFIG_RS_RGB_RAW10			0x1e
 #define VD1941_CONFIG_RS_RGB_RAW12			0x1f
@@ -160,7 +160,7 @@ int dev_err_probe(const struct device *dev, int err, const char *fmt, ...)
 #define VD1941_REG_DIGITAL_GAIN_IR			CCI_REG16_LE(0x0c86)
 
 /*
- * The VD1941 pixel array is organized as follows:
+ * The VD1941/VD5941 pixel array are organized as follows:
  *
  * +--------------------------------------+
  * |                                      | \
@@ -187,7 +187,7 @@ int dev_err_probe(const struct device *dev, int err, const char *fmt, ...)
 #define VD1941_DEFAULT_HEIGHT				1080
 #define VD1941_DEFAULT_MODE				3
 
-/* vd1941 is a combined Rolling and Global Shutter sensor */
+/* vd1941/vd5941 is a combined Rolling and Global Shutter sensor */
 #define VD1941_GS_MODE					0
 #define VD1941_RS_MODE					1
 
@@ -215,8 +215,8 @@ int dev_err_probe(const struct device *dev, int err, const char *fmt, ...)
 #define V4L2_CID_SHUTTER_MODE			(V4L2_CID_USER_BASE | 0x1026)
 /* parse-SNAP: */
 
-#include "vd1941_certificate.c"
-#include "vd1941_fmwpatch.c"
+#include "vd1941_fmwpatch_vd1941.c"
+#include "vd1941_fmwpatch_vd5941.c"
 #include "vd1941_vtpatch.c"
 
 /* regulator supplies */
@@ -227,8 +227,13 @@ static const char *const vd1941_supply_names[] = {
 };
 
 /* -----------------------------------------------------------------------------
- * Modes and formats
+ * Models, Modes and formats
  */
+
+enum vd1941_models {
+	VD1941_MODEL_VD1941, // RGBNir variant
+	VD1941_MODEL_VD5941, // Mono variant
+};
 
 struct vd1941_mode {
 	u32 width;
@@ -238,7 +243,7 @@ struct vd1941_mode {
 /**
  * DOC: Supported Modes
  *
- * The vd1941 driver supports 6 modes described below :
+ * The vd1941/vd5941 driver supports 6 modes described below :
  *
  * ======= ======== ====================
  *  Width   Height   Comment
@@ -288,81 +293,101 @@ static const struct vd1941_mode vd1941_supported_modes[] = {
 	},
 };
 
-/*
- * vd1941 is hybrid in many aspects :
- * - support both Rolling and Global Shutter modes
- * - provides an RGB-NIR matrix
- *
- * main use cases are :
- * - Global Shutter with NIR output in both Y8 and Y10
- * - Rolling Shutter with Color Bayer output in GBRG8, GBRG10 and GBRG12
- */
-
 struct vd1941_config {
 	u8 sensor_conf;
 	unsigned int mbus_code;
 };
 
-static const struct vd1941_config vd1941_configs[2][4] = {
+static const struct vd1941_config vdx941_configs[2][2][4] = {
 	{
-		/* Global Shutter modes */
+		/* VD1941_MODEL_VD1941 : RGBNir variant */
 		{
-			.sensor_conf = VD1941_CONFIG_GS_IR_RAW8,
-			.mbus_code = MEDIA_BUS_FMT_Y8_1X8,
+			/* Global Shutter modes */
+			{
+				.sensor_conf = VD1941_CONFIG_GS_IR_RAW8,
+				.mbus_code = MEDIA_BUS_FMT_Y8_1X8,
+			},
+			{
+				.sensor_conf = VD1941_CONFIG_GS_IR_RAW10,
+				.mbus_code = MEDIA_BUS_FMT_Y10_1X10,
+			},
+			{
+				.sensor_conf = VD1941_CONFIG_GS_RGB_RAW8,
+				.mbus_code = MEDIA_BUS_FMT_SGBRG8_1X8,
+			},
+			{
+				.sensor_conf = VD1941_CONFIG_GS_RGB_RAW10,
+				.mbus_code = MEDIA_BUS_FMT_SGBRG10_1X10,
+			},
+			/* TODO : Custom mbus codes break libcamera apps */
+			/*{
+			 *	.sensor_conf = VD1941_CONFIG_GS_NATIVE_RAW8,
+			 *	.mbus_code = MEDIA_BUS_FMT_RGBNIR4X4_1X8,
+			 *},
+			 *{
+			 *	.sensor_conf = VD1941_CONFIG_GS_NATIVE_RAW10,
+			 *	.mbus_code = MEDIA_BUS_FMT_RGBNIR4X4_1X10,
+			 *},
+			 */
 		},
 		{
-			.sensor_conf = VD1941_CONFIG_GS_IR_RAW10,
-			.mbus_code = MEDIA_BUS_FMT_Y10_1X10,
+			/* Rolling Shutter modes */
+			{
+				.sensor_conf = VD1941_CONFIG_RS_RGB_RAW8,
+				.mbus_code = MEDIA_BUS_FMT_SGBRG8_1X8,
+			},
+			{
+				.sensor_conf = VD1941_CONFIG_RS_RGB_RAW10,
+				.mbus_code = MEDIA_BUS_FMT_SGBRG10_1X10,
+			},
+			{
+				.sensor_conf = VD1941_CONFIG_RS_RGB_RAW12,
+				.mbus_code = MEDIA_BUS_FMT_SGBRG12_1X12,
+			},
+			/* TODO : Custom mbus codes break libcamera apps */
+			/*{
+			 *	.sensor_conf = VD1941_CONFIG_RS_NATIVE_RAW8,
+			 *	.mbus_code = MEDIA_BUS_FMT_RGBNIR4X4_1X8,
+			 *},
+			 *{
+			 *	.sensor_conf = VD1941_CONFIG_RS_NATIVE_RAW10,
+			 *	.mbus_code = MEDIA_BUS_FMT_RGBNIR4X4_1X10,
+			 *},
+			 *{
+			 *	.sensor_conf = VD1941_CONFIG_RS_NATIVE_RAW12,
+			 *	.mbus_code = MEDIA_BUS_FMT_RGBNIR4X4_1X12,
+			 *},
+			 */
 		},
-		{
-			.sensor_conf = VD1941_CONFIG_GS_RGB_RAW8,
-			.mbus_code = MEDIA_BUS_FMT_SGBRG8_1X8,
-		},
-		{
-			.sensor_conf = VD1941_CONFIG_GS_RGB_RAW10,
-			.mbus_code = MEDIA_BUS_FMT_SGBRG10_1X10,
-		},
-		/* Unknown mbus codes breaks rpi-camera apps */
-		/*
-		 *{
-		 *	.sensor_conf = VD1941_CONFIG_GS_RGBNIR_RAW8,
-		 *	.mbus_code = MEDIA_BUS_FMT_RGBNIR4X4_1X8,
-		 *},
-		 *{
-		 *	.sensor_conf = VD1941_CONFIG_GS_RGBNIR_RAW10,
-		 *	.mbus_code = MEDIA_BUS_FMT_RGBNIR4X4_1X10,
-		 *},
-		 */
 	},
 	{
-		/* Rolling Shutter modes */
+		/* VD1941_MODEL_VD5941 : Mono variant */
 		{
-			.sensor_conf = VD1941_CONFIG_RS_RGB_RAW8,
-			.mbus_code = MEDIA_BUS_FMT_SGBRG8_1X8,
+			/* Global Shutter modes */
+			{
+				.sensor_conf = VD1941_CONFIG_GS_NATIVE_RAW8,
+				.mbus_code = MEDIA_BUS_FMT_Y8_1X8,
+			},
+			{
+				.sensor_conf = VD1941_CONFIG_GS_NATIVE_RAW10,
+				.mbus_code = MEDIA_BUS_FMT_Y10_1X10,
+			},
 		},
 		{
-			.sensor_conf = VD1941_CONFIG_RS_RGB_RAW10,
-			.mbus_code = MEDIA_BUS_FMT_SGBRG10_1X10,
+			/* Rolling Shutter modes */
+			{
+				.sensor_conf = VD1941_CONFIG_RS_NATIVE_RAW8,
+				.mbus_code = MEDIA_BUS_FMT_Y8_1X8,
+			},
+			{
+				.sensor_conf = VD1941_CONFIG_RS_NATIVE_RAW10,
+				.mbus_code = MEDIA_BUS_FMT_Y10_1X10,
+			},
+			{
+				.sensor_conf = VD1941_CONFIG_RS_NATIVE_RAW12,
+				.mbus_code = MEDIA_BUS_FMT_Y12_1X12,
+			},
 		},
-		{
-			.sensor_conf = VD1941_CONFIG_RS_RGB_RAW12,
-			.mbus_code = MEDIA_BUS_FMT_SGBRG12_1X12,
-		},
-		/* Unknown mbus codes breaks rpi-camera apps */
-		/*
-		 *{
-		 *	.sensor_conf = VD1941_CONFIG_RS_RGBNIR_RAW8,
-		 *	.mbus_code = MEDIA_BUS_FMT_RGBNIR4X4_1X8,
-		 *},
-		 *{
-		 *	.sensor_conf = VD1941_CONFIG_RS_RGBNIR_RAW10,
-		 *	.mbus_code = MEDIA_BUS_FMT_RGBNIR4X4_1X10,
-		 *},
-		 *{
-		 *	.sensor_conf = VD1941_CONFIG_RS_RGBNIR_RAW12,
-		 *	.mbus_code = MEDIA_BUS_FMT_RGBNIR4X4_1X12,
-		 *},
-		 */
 	},
 };
 
@@ -391,6 +416,7 @@ struct vd1941 {
 	u32 gpios[VD1941_NB_GPIOS];
 	u8 ext_vt_sync;
 	unsigned long ext_leds_mask;
+	enum vd1941_models model;
 	/* lock to protect all members below */
 	struct mutex lock;
 	struct v4l2_ctrl_handler ctrl_handler;
@@ -602,6 +628,7 @@ static const s64 vd1941_link_freq_4lanes[] = { VD1941_LINK_FREQ_DEF_4LANES };
 
 static u8 vd1941_get_datatype(__u32 code)
 {
+	/* TODO : Correctly handle MEDIA_BUS_FMT_RGBNIR4X4 mbus codes */
 	switch (code) {
 	case MEDIA_BUS_FMT_Y8_1X8:
 	case MEDIA_BUS_FMT_SGRBG8_1X8:
@@ -616,6 +643,7 @@ static u8 vd1941_get_datatype(__u32 code)
 	case MEDIA_BUS_FMT_SBGGR10_1X10:
 	case MEDIA_BUS_FMT_SGBRG10_1X10:
 		return MIPI_CSI2_DT_RAW10;
+	case MEDIA_BUS_FMT_Y12_1X12:
 	case MEDIA_BUS_FMT_SGRBG12_1X12:
 	case MEDIA_BUS_FMT_SRGGB12_1X12:
 	case MEDIA_BUS_FMT_SBGGR12_1X12:
@@ -654,18 +682,19 @@ static int vd1941_get_temp(struct vd1941 *sensor, int *temp)
 static int vd1941_write_sensor_conf(struct vd1941 *sensor, u8 shutter_mode)
 {
 	unsigned int code = sensor->active_fmt.code;
+	unsigned int model = sensor->model;
 	unsigned int i;
 	int ret = 0;
 
-	for (i = 0; i < ARRAY_SIZE(vd1941_configs[shutter_mode]); i++)
-		if (vd1941_configs[shutter_mode][i].mbus_code == code)
+	for (i = 0; i < ARRAY_SIZE(vdx941_configs[model][shutter_mode]); i++)
+		if (vdx941_configs[model][shutter_mode][i].mbus_code == code)
 			break;
 
-	if (i >= ARRAY_SIZE(vd1941_configs[shutter_mode]))
+	if (i >= ARRAY_SIZE(vdx941_configs[model][shutter_mode]))
 		i = 0;
 
 	vd1941_write(sensor, VD1941_REG_SENSOR_CONFIGURATION,
-		     vd1941_configs[shutter_mode][i].sensor_conf, &ret);
+		     vdx941_configs[model][shutter_mode][i].sensor_conf, &ret);
 
 	return ret;
 }
@@ -1188,17 +1217,18 @@ static const struct v4l2_subdev_video_ops vd1941_video_ops = {
  */
 static u32 vd1941_get_mbus_code(struct vd1941 *sensor, u32 code)
 {
-	unsigned int shutter_mode = sensor->shutter_ctrl->val;
+	unsigned int model = sensor->model;
+	unsigned int shutter = sensor->shutter_ctrl->val;
 	unsigned int i;
 
-	for (i = 0; i < ARRAY_SIZE(vd1941_configs[shutter_mode]); i++)
-		if (vd1941_configs[shutter_mode][i].mbus_code == code)
+	for (i = 0; i < ARRAY_SIZE(vdx941_configs[model][shutter]); i++)
+		if (vdx941_configs[model][shutter][i].mbus_code == code)
 			break;
 
-	if (i >= ARRAY_SIZE(vd1941_configs[shutter_mode]))
+	if (i >= ARRAY_SIZE(vdx941_configs[model][shutter]))
 		i = 0;
 
-	return vd1941_configs[shutter_mode][i].mbus_code;
+	return vdx941_configs[model][shutter][i].mbus_code;
 }
 
 #if KERNEL_VERSION(5, 14, 0) > LINUX_VERSION_CODE
@@ -1212,12 +1242,16 @@ static int vd1941_enum_mbus_code(struct v4l2_subdev *sd,
 #endif
 {
 	struct vd1941 *sensor = to_vd1941(sd);
-	unsigned int shutter_mode = sensor->shutter_ctrl->val;
+	unsigned int model = sensor->model;
+	unsigned int shutter = sensor->shutter_ctrl->val;
 
-	if (code->index >= ARRAY_SIZE(vd1941_configs[shutter_mode]))
+	if (code->index >= ARRAY_SIZE(vdx941_configs[model][shutter]))
 		return -EINVAL;
 
-	code->code = vd1941_configs[VD1941_GS_MODE][code->index].mbus_code;
+	if (!vdx941_configs[model][shutter][code->index].mbus_code)
+		return -EINVAL;
+
+	code->code = vdx941_configs[model][shutter][code->index].mbus_code;
 
 	return 0;
 }
@@ -1403,9 +1437,10 @@ static int vd1941_init_cfg(struct v4l2_subdev *sd,
 	unsigned int def_mode = VD1941_DEFAULT_MODE;
 
 	/* Default resolution mode / raw8 */
-	vd1941_update_img_pad_format(sensor, &vd1941_supported_modes[def_mode],
-				     vd1941_configs[VD1941_GS_MODE][0].mbus_code,
-				     &sensor->active_fmt);
+	vd1941_update_img_pad_format(
+		sensor, &vd1941_supported_modes[def_mode],
+		vdx941_configs[sensor->model][VD1941_GS_MODE][0].mbus_code,
+		&sensor->active_fmt);
 
 	return 0;
 }
@@ -1440,10 +1475,18 @@ static const struct media_entity_operations vd1941_subdev_entity_ops = {
 static int vd1941_boot(struct vd1941 *sensor)
 {
 	struct i2c_client *client = sensor->i2c_client;
-	const u8 *certificate = vd1941_certificate;
-	int cert_size = sizeof(vd1941_certificate);
-	const u8 *patch = vd1941_fmwpatch;
-	int patch_size = sizeof(vd1941_fmwpatch);
+	const u8 *certificate = (sensor->model == VD1941_MODEL_VD1941) ?
+					vd1941_certificate_vd1941 :
+					vd1941_certificate_vd5941;
+	int cert_size = (sensor->model == VD1941_MODEL_VD1941) ?
+				sizeof(vd1941_certificate_vd1941) :
+				sizeof(vd1941_certificate_vd5941);
+	const u8 *patch = (sensor->model == VD1941_MODEL_VD1941) ?
+				  vd1941_fmwpatch_vd1941 :
+				  vd1941_fmwpatch_vd5941;
+	int patch_size = (sensor->model == VD1941_MODEL_VD1941) ?
+				 sizeof(vd1941_fmwpatch_vd1941) :
+				 sizeof(vd1941_fmwpatch_vd5941);
 	int ret = 0;
 
 	vd1941_write_array(sensor, 0x1aa8, cert_size, certificate, &ret);
@@ -1858,13 +1901,13 @@ static int vd1941_detect(struct vd1941 *sensor)
 {
 	struct i2c_client *client = sensor->i2c_client;
 	struct device *dev = &client->dev;
-	unsigned int model;
 	int model_id = 0;
 	int rom_version = 0;
-	int optical_version = 0;
+	// int optical_version = 0;
+	// int is_rgbnir = 0;
 	int ret = 0;
 
-	model = (uintptr_t)device_get_match_data(dev);
+	sensor->model = (uintptr_t)device_get_match_data(dev);
 
 	ret = vd1941_read(sensor, VD1941_REG_MODEL_ID, &model_id, NULL);
 	if (ret)
@@ -1885,17 +1928,22 @@ static int vd1941_detect(struct vd1941 *sensor)
 		return -ENODEV;
 	}
 
-	ret = vd1941_read(sensor, VD1941_REG_CFA_SELECTION, &optical_version,
-			  NULL);
-	if (ret)
-		return ret;
-
-	optical_version = optical_version & 0x0f;
-	if (optical_version != VD1941_OPTICAL_RGBIR) {
-		dev_err(&client->dev, "Unsupported optical version  : %x",
-			optical_version);
-		return -ENODEV;
-	}
+	/* TODO : Enable optical_version check when moving on HW cut 1.4 */
+	/*ret = vd1941_read(sensor, VD1941_REG_CFA_SELECTION, &optical_version,
+	 *		  NULL);
+	 *if (ret)
+	 *	return ret;
+	 *
+	 *is_rgbnir = ((optical_version & 0x0f) == VD1941_OPTICAL_RGBIR);
+	 *if ((is_rgbnir && sensor->model == VD1941_MODEL_VD5941) ||
+	 *    (!is_rgbnir && sensor->model == VD1941_MODEL_VD1941)) {
+	 *	dev_warn(&client->dev,
+	 *		 "Found %s sensor, while %s model is defined in DT",
+	 *		 (is_rgbnir) ? "RGBNir" : "Mono",
+	 *		 (sensor->model == VD1941_MODEL_VD1941) ? "vd1941" : "vd5941");
+	 *	return -ENODEV;
+	 *}
+	 */
 
 	return 0;
 }
@@ -1932,9 +1980,10 @@ static int vd1941_subdev_init(struct vd1941 *sensor)
 
 	/* Init vd1941 struct : default resolution + raw8 */
 	sensor->streaming = false;
-	vd1941_update_img_pad_format(sensor, &vd1941_supported_modes[def_mode],
-				     vd1941_configs[VD1941_GS_MODE][0].mbus_code,
-				     &sensor->active_fmt);
+	vd1941_update_img_pad_format(
+		sensor, &vd1941_supported_modes[def_mode],
+		vdx941_configs[sensor->model][VD1941_GS_MODE][0].mbus_code,
+		&sensor->active_fmt);
 	sensor->active_crop.width = vd1941_supported_modes[def_mode].width;
 	sensor->active_crop.height = vd1941_supported_modes[def_mode].height;
 	sensor->active_crop.left = 320;
@@ -2043,7 +2092,8 @@ static int vd1941_probe(struct i2c_client *client)
 	__pm_runtime_put_autosuspend(dev);
 #endif
 
-	dev_info(&client->dev, "Successfully probe vd1941 sensor");
+	dev_info(&client->dev, "Successfully probe %s sensor",
+		 (sensor->model == VD1941_MODEL_VD1941) ? "vd1941" : "vd5941");
 
 	return 0;
 
@@ -2079,7 +2129,8 @@ static void vd1941_remove(struct i2c_client *client)
 }
 
 static const struct of_device_id vd1941_dt_ids[] = {
-	{ .compatible = "st,vd1941"},
+	{ .compatible = "st,vd1941", .data = (void *)VD1941_MODEL_VD1941 },
+	{ .compatible = "st,vd5941", .data = (void *)VD1941_MODEL_VD5941 },
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, vd1941_dt_ids);
