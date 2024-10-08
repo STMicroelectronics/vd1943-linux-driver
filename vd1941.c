@@ -122,6 +122,7 @@ int dev_err_probe(const struct device *dev, int err, const char *fmt, ...)
 #define VD1941_REG_ROI_WIDTH				CCI_REG16_LE(0x0910)
 #define VD1941_REG_ROI_HEIGHT				CCI_REG16_LE(0x0912)
 #define VD1941_REG_ROI_DT				CCI_REG8(0x0914)
+#define VD1941_REG_LINE_LENGTH				CCI_REG16_LE(0x0934)
 #define VD1941_REG_ORIENTATION				CCI_REG8(0x0937)
 #define VD1941_REG_PATGEN_CTRL				CCI_REG8(0x0938)
 #define VD1941_REG_OIF_LANE_PHY_MAP			CCI_REG8(0x093a)
@@ -192,9 +193,9 @@ int dev_err_probe(const struct device *dev, int err, const char *fmt, ...)
 #define VD1941_RS_MODE					1
 
 /* Line length and Frame length (settings are for standard 10bits ADC mode) */
-#define VD1941_LINE_LENGTH_DEF				3372
-#define VD1941_FRAME_LENGTH_DEF_60FPS			1852
-#define VD1941_VBLANK_MIN				110 // TODO : characterize Me
+#define VD1941_LINE_LENGTH_MIN				3372
+#define VD1941_FRAME_LENGTH_DEF_30FPS			3707
+#define VD1941_VBLANK_MIN				50 // TODO : characterize Me
 
 /* Exposure settings */
 #define VD1941_EXPOSURE_MARGIN				100 // TODO : characterize Me
@@ -257,12 +258,12 @@ struct vd1941_mode {
  * ======= ======== ====================
  *
  * Depending of the configured shutter mode (Rolling vs Global), the max frame
- * rate can be different. In full resolution the hardware supports up to  :
- * - 50 fps in Rolling Shutter
- * - 60 fps in Global Shutter
+ * rate can be different. In full resolution the hardware supports up to :
+ * - 54 fps in Rolling Shutter
+ * - 109 fps in Global Shutter (depending on MIPI bandwidth)
  *
- * For simplicity, this driver clamps the maximum framerate on the limiting
- * mode: 50 fps (in the case of rolling shutter).
+ * For simplicity, the current driver implementation clamps the maximum
+ * framerate on the limiting RS mode: 54 fps.
  * Note that in lower resolution, framerate can be higher.
  */
 
@@ -924,10 +925,10 @@ static const struct v4l2_ctrl_config vd1941_shutter_ctrl = {
 static void vd1941_update_controls(struct vd1941 *sensor)
 {
 	unsigned int hblank =
-		VD1941_LINE_LENGTH_DEF - sensor->active_crop.width;
+		VD1941_LINE_LENGTH_MIN - sensor->active_crop.width;
 	unsigned int vblank_min = VD1941_VBLANK_MIN;
 	unsigned int vblank =
-		VD1941_FRAME_LENGTH_DEF_60FPS - sensor->active_crop.height;
+		VD1941_FRAME_LENGTH_DEF_30FPS - sensor->active_crop.height;
 	unsigned int vblank_max = 0xffff - sensor->active_crop.height;
 	unsigned int frame_length = sensor->active_crop.height + vblank;
 	unsigned int expo_min =
@@ -1090,6 +1091,8 @@ static int vd1941_stream_on(struct vd1941 *sensor)
 		     sensor->oif_lane_phy_swap, &ret);
 	vd1941_write(sensor, VD1941_REG_MIPI_DATA_RATE, csi_mbps, &ret);
 	vd1941_write(sensor, VD1941_REG_OIF_ISL_ENABLE, 0, &ret);
+	vd1941_write(sensor, VD1941_REG_LINE_LENGTH, VD1941_LINE_LENGTH_MIN,
+		     &ret);
 
 	/* configure ROIs */
 	vd1941_write(sensor, VD1941_REG_ROI_WIDTH_OFFSET, crop->left, &ret);
@@ -1891,8 +1894,8 @@ static int vd1941_prepare_clock_tree(struct vd1941 *sensor)
 		pll_clk = ndiv * 2 * sensor->xclk_freq;
 	}
 
-	/* vd1941 is designed to run with a pixel clock at 93.75 Mhz. */
-	sensor->pixel_clock = pll_clk / 16;
+	/* vd1941 is designed to run with a virtual pixel clock at 375 Mhz. */
+	sensor->pixel_clock = pll_clk / 4;
 
 	return 0;
 }
