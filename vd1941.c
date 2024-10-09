@@ -434,6 +434,7 @@ struct vd1941 {
 	struct v4l2_ctrl *slave_ctrl;
 	struct v4l2_ctrl *led_ctrl;
 	struct v4l2_ctrl *shutter_ctrl;
+	struct v4l2_ctrl *pedestal_ctrl;
 	bool streaming;
 	struct v4l2_mbus_framefmt active_fmt;
 	struct v4l2_rect active_crop;
@@ -1029,7 +1030,8 @@ static int vd1941_init_controls(struct vd1941 *sensor)
 		v4l2_ctrl_new_custom(hdl, &vd1941_shutter_ctrl, NULL);
 	if (sensor->shutter_ctrl)
 		sensor->shutter_ctrl->flags |= V4L2_CTRL_FLAG_MODIFY_LAYOUT;
-	v4l2_ctrl_new_custom(hdl, &vd1941_darkcal_pedestal_ctrl, NULL);
+	sensor->pedestal_ctrl =
+		v4l2_ctrl_new_custom(hdl, &vd1941_darkcal_pedestal_ctrl, NULL);
 	if (sensor->ext_vt_sync < VD1941_NB_GPIOS)
 		sensor->slave_ctrl =
 			v4l2_ctrl_new_custom(hdl, &vd1941_slave_ctrl, NULL);
@@ -1179,23 +1181,33 @@ unlock:
 	mutex_unlock(&sensor->lock);
 
 	if (!ret) {
-		/* some controls are locked during streaming */
+		/* Controls related to static reg are locked during streaming */
 		v4l2_ctrl_grab(sensor->hflip_ctrl, enable);
 		v4l2_ctrl_grab(sensor->vflip_ctrl, enable);
 		v4l2_ctrl_grab(sensor->patgen_ctrl, enable);
+		v4l2_ctrl_grab(sensor->vblank_ctrl, enable);
+		v4l2_ctrl_grab(sensor->shutter_ctrl, enable);
+		v4l2_ctrl_grab(sensor->pedestal_ctrl, enable);
 		if (sensor->ext_vt_sync < VD1941_NB_GPIOS)
 			v4l2_ctrl_grab(sensor->slave_ctrl, enable);
+		if (sensor->ext_leds_mask)
+			v4l2_ctrl_grab(sensor->led_ctrl, enable);
 	}
 #else
 	if (!ret) {
 		sensor->streaming = enable;
 
-		/* some controls are locked during streaming */
+		/* Controls related to static reg are locked during streaming */
 		__v4l2_ctrl_grab(sensor->hflip_ctrl, enable);
 		__v4l2_ctrl_grab(sensor->vflip_ctrl, enable);
 		__v4l2_ctrl_grab(sensor->patgen_ctrl, enable);
+		__v4l2_ctrl_grab(sensor->vblank_ctrl, enable);
+		__v4l2_ctrl_grab(sensor->shutter_ctrl, enable);
+		__v4l2_ctrl_grab(sensor->pedestal_ctrl, enable);
 		if (sensor->ext_vt_sync < VD1941_NB_GPIOS)
 			__v4l2_ctrl_grab(sensor->slave_ctrl, enable);
+		if (sensor->ext_leds_mask)
+			__v4l2_ctrl_grab(sensor->led_ctrl, enable);
 	}
 
 unlock:
