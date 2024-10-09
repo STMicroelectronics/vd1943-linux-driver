@@ -1029,6 +1029,7 @@ static int vd1941_init_controls(struct vd1941 *sensor)
 		v4l2_ctrl_new_custom(hdl, &vd1941_shutter_ctrl, NULL);
 	if (sensor->shutter_ctrl)
 		sensor->shutter_ctrl->flags |= V4L2_CTRL_FLAG_MODIFY_LAYOUT;
+	v4l2_ctrl_new_custom(hdl, &vd1941_darkcal_pedestal_ctrl, NULL);
 	if (sensor->ext_vt_sync < VD1941_NB_GPIOS)
 		sensor->slave_ctrl =
 			v4l2_ctrl_new_custom(hdl, &vd1941_slave_ctrl, NULL);
