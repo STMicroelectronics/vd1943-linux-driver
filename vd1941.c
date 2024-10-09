@@ -133,6 +133,7 @@ int dev_err_probe(const struct device *dev, int err, const char *fmt, ...)
 #define VD1941_GPIOX_STROBE_MODE			0x00
 #define VD1941_GPIOX_GPIO_IN				0x03
 #define VD1941_GPIOX_FSYNC_IN				0x05
+#define VD1941_REG_DARKCAL_ENABLE			CCI_REG8(0x0af3)
 #define VD1941_REG_SENSOR_CONFIGURATION			CCI_REG32_LE(0x0b40)
 #define VD1941_CONFIG_GS_NATIVE_RAW8			0x01
 #define VD1941_CONFIG_GS_NATIVE_RAW10			0x02
@@ -775,6 +776,8 @@ static int vd1941_s_ctrl(struct v4l2_ctrl *ctrl)
 	case V4L2_CID_TEST_PATTERN:
 		ret = vd1941_write(sensor, VD1941_REG_PATGEN_CTRL, ctrl->val,
 				   NULL);
+		ret = vd1941_write(sensor, VD1941_REG_DARKCAL_ENABLE,
+				   !ctrl->val, NULL);
 		break;
 	case V4L2_CID_VBLANK:
 		ret = vd1941_write(sensor, VD1941_REG_FRAME_LENGTH,
