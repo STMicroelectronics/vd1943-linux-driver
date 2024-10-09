@@ -655,6 +655,32 @@ static u8 vd1941_get_datatype(__u32 code)
 	}
 }
 
+static u8 vd1941_get_bpp(__u32 code)
+{
+	/* TODO : Correctly handle MEDIA_BUS_FMT_RGBNIR4X4 mbus codes */
+	switch (code) {
+	case MEDIA_BUS_FMT_Y8_1X8:
+	case MEDIA_BUS_FMT_SGRBG8_1X8:
+	case MEDIA_BUS_FMT_SRGGB8_1X8:
+	case MEDIA_BUS_FMT_SBGGR8_1X8:
+	case MEDIA_BUS_FMT_SGBRG8_1X8:
+	default:
+		return 8;
+	case MEDIA_BUS_FMT_Y10_1X10:
+	case MEDIA_BUS_FMT_SGRBG10_1X10:
+	case MEDIA_BUS_FMT_SRGGB10_1X10:
+	case MEDIA_BUS_FMT_SBGGR10_1X10:
+	case MEDIA_BUS_FMT_SGBRG10_1X10:
+		return 10;
+	case MEDIA_BUS_FMT_Y12_1X12:
+	case MEDIA_BUS_FMT_SGRBG12_1X12:
+	case MEDIA_BUS_FMT_SRGGB12_1X12:
+	case MEDIA_BUS_FMT_SBGGR12_1X12:
+	case MEDIA_BUS_FMT_SGBRG12_1X12:
+		return 12;
+	}
+}
+
 static int vd1941_get_temp_stream_enable(struct vd1941 *sensor, int *temp)
 {
 	return vd1941_read(sensor, VD1941_REG_TEMPERATURE, temp, NULL);
@@ -780,8 +806,14 @@ static int vd1941_s_ctrl(struct v4l2_ctrl *ctrl)
 				   !ctrl->val, NULL);
 		break;
 	case V4L2_CID_VBLANK:
-		ret = vd1941_write(sensor, VD1941_REG_FRAME_LENGTH,
-				   frame_length, NULL);
+		/*
+		 * Vblank is temporarily handled in vd1941_stream_on() to
+		 * properly support GS - specific - timings.
+		 */
+		/*
+		 *ret = vd1941_write(sensor, VD1941_REG_FRAME_LENGTH,
+		 *	   frame_length, NULL);
+		 */
 		break;
 	case V4L2_CID_EXPOSURE:
 		ret = vd1941_write(sensor, VD1941_REG_INTEGRATION_TIME_PRIMARY,
@@ -1078,16 +1110,66 @@ free_ctrls:
  * Videos ops
  */
 
+static int vd1941_compute_gs_blankings(struct vd1941 *sensor,
+				       unsigned int *line_length,
+				       unsigned int *frame_length)
+{
+	unsigned int line_length_rs = *line_length;
+	unsigned int frame_length_rs = *frame_length;
+	const struct v4l2_rect *crop = &sensor->active_crop;
+
+	/* Compute available MIPI Bandwidth */
+	unsigned int mipi_mbps = ((sensor->nb_of_lane == 2) ?
+					  VD1941_LINK_FREQ_DEF_2LANES :
+					  VD1941_LINK_FREQ_DEF_4LANES) *
+				 2 * sensor->nb_of_lane;
+
+	/* Depending of format, compute the max line rate on the mipi link */
+	unsigned int mipi_linerate_max =
+		mipi_mbps /
+		(crop->width * vd1941_get_bpp(sensor->active_fmt.code));
+
+	/* With 2 ADC in GS mode, the pixel clock is virtually doubled */
+	unsigned int virt_pixel_clock =
+		sensor->pixel_clock *
+		((sensor->shutter_ctrl->val == VD1941_GS_MODE) ? 2 : 1);
+
+	/* Compute the min line length given the mipi bandwidth */
+	unsigned int line_length_gs = virt_pixel_clock / mipi_linerate_max;
+
+	if (line_length_gs < VD1941_LINE_LENGTH_MIN)
+		*line_length = VD1941_LINE_LENGTH_MIN;
+	else
+		*line_length = line_length_gs;
+
+	/* Adjuste frame length to fit with the expectation */
+	*frame_length = frame_length_rs * line_length_rs / *line_length;
+
+	return 0;
+}
+
 static int vd1941_stream_on(struct vd1941 *sensor)
 {
 	const struct v4l2_rect *crop = &sensor->active_crop;
+	/* TODO : ensure correctness */
 	unsigned int csi_mbps = ((sensor->nb_of_lane == 2) ?
 					 VD1941_LINK_FREQ_DEF_2LANES :
 					 VD1941_LINK_FREQ_DEF_4LANES) * 2;
 	unsigned int lane_nb = ((sensor->nb_of_lane == 2) ? VD1941_LANES_NB_2 :
 							    VD1941_LANES_NB_4);
+	/* default line/frame length to RS timings */
+	unsigned int line_length = VD1941_LINE_LENGTH_MIN;
+	unsigned int frame_length =
+		sensor->active_crop.height + sensor->vblank_ctrl->val;
 	unsigned int io;
 	int ret = 0;
+
+	/* configure video timings */
+	if (sensor->shutter_ctrl->val == VD1941_GS_MODE)
+		ret = vd1941_compute_gs_blankings(sensor, &line_length,
+						  &frame_length);
+	vd1941_write(sensor, VD1941_REG_LINE_LENGTH, line_length, &ret);
+	vd1941_write(sensor, VD1941_REG_FRAME_LENGTH, frame_length, &ret);
 
 	/* configure output */
 	vd1941_write(sensor, VD1941_REG_LANE_NB_SEL, lane_nb, &ret);
@@ -1097,8 +1179,6 @@ static int vd1941_stream_on(struct vd1941 *sensor)
 		     sensor->oif_lane_phy_swap, &ret);
 	vd1941_write(sensor, VD1941_REG_MIPI_DATA_RATE, csi_mbps, &ret);
 	vd1941_write(sensor, VD1941_REG_OIF_ISL_ENABLE, 0, &ret);
-	vd1941_write(sensor, VD1941_REG_LINE_LENGTH, VD1941_LINE_LENGTH_MIN,
-		     &ret);
 
 	/* configure ROIs */
 	vd1941_write(sensor, VD1941_REG_ROI_WIDTH_OFFSET, crop->left, &ret);
