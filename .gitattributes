@@ -1,0 +1,11 @@
+# Automatically normalize line endings (to LF) for all text-based files.
+* text=auto eol=lf
+
+# export-ignore rules (to keep only 'src' folder for release)
+.gitignore export-ignore
+.gitattributes export-ignore
+.clang-format export-ignore
+Jenkinsfile export-ignore
+debian export-ignore
+CONTRIBUTING.md export-ignore
+
