@@ -44,7 +44,7 @@
 			#size-cells = <0>;
 			status = "okay";
 
-			fox: fox@10 {
+			vd5941: vd5941@10 {
 				status = "ok";
 				compatible = "st,vd5941";
 				reg = <0x10>;
@@ -62,7 +62,7 @@
 				rotation = <0>;
 
 				port {
-					fox_ep: endpoint {
+					vd5941_ep: endpoint {
 						clock-lanes = <0>;
 						data-lanes = <1 2>;
 						remote-endpoint = <&csi1_ep>;
@@ -83,7 +83,7 @@
 
 			port {
 				csi1_ep: endpoint {
-					remote-endpoint = <&fox_ep>;
+					remote-endpoint = <&vd5941_ep>;
 					clock-lanes = <0>;
 					data-lanes = <1 2>;
 					clock-noncontinuous;
@@ -116,8 +116,8 @@
 	fragment@6 {
 		target-path="/__overrides__";
 		__overlay__ {
-			cam0-pwdn-ctrl = <&fox>,"reset-gpios:0";
-			cam0-pwdn      = <&fox>,"reset-gpios:4";
+			cam0-pwdn-ctrl = <&vd5941>,"reset-gpios:0";
+			cam0-pwdn      = <&vd5941>,"reset-gpios:4";
 			media-controller = <&csi>,"brcm,media-controller?";
 		};
 	};
