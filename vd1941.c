@@ -148,9 +148,7 @@ int dev_err_probe(const struct device *dev, int err, const char *fmt, ...)
 #define VD1941_CONFIG_RS_RGB_RAW10			0x1e
 #define VD1941_CONFIG_RS_RGB_RAW12			0x1f
 #define VD1941_REG_FRAME_LENGTH				CCI_REG16_LE(0x0b46)
-#define VD1941_REG_GPIO_CTRL				CCI_REG16_LE(0x0b49)
-#define VD1941_GPIO_ENABLE				0x01
-#define VD1941_GPIO_DISABLE				0x00
+#define VD1941_REG_GPIO_CTRL				CCI_REG8(0x0b49)
 #define VD1941_REG_DARKCAL_PEDESTAL			CCI_REG16_LE(0x0b6e)
 #define VD1941_REG_ANALOG_GAIN				CCI_REG8(0x0c79)
 #define VD1941_REG_INTEGRATION_TIME_PRIMARY		CCI_REG16_LE(0x0c7a)
@@ -770,6 +768,7 @@ static int vd1941_s_ctrl(struct v4l2_ctrl *ctrl)
 	unsigned int frame_length = 0;
 	unsigned int expo_max;
 	unsigned int gpio_ctrl;
+	unsigned long gpio_ctrl_new;
 	unsigned long io;
 	int ret;
 
@@ -838,16 +837,19 @@ static int vd1941_s_ctrl(struct v4l2_ctrl *ctrl)
 		break;
 	case V4L2_CID_SLAVE_MODE:
 		vd1941_read(sensor, VD1941_REG_GPIO_CTRL, &gpio_ctrl, &ret);
-		assign_bit(sensor->ext_vt_sync, (unsigned long *)&gpio_ctrl,
-			   ctrl->val);
-		vd1941_write(sensor, VD1941_REG_GPIO_CTRL, gpio_ctrl, &ret);
+		gpio_ctrl_new = gpio_ctrl;
+		assign_bit(sensor->ext_vt_sync, &gpio_ctrl_new, ctrl->val);
+		vd1941_write(sensor, VD1941_REG_GPIO_CTRL,
+			     (unsigned int)gpio_ctrl_new, &ret);
 		vd1941_write(sensor, VD1941_REG_VT_CTRL, ctrl->val, &ret);
 		break;
 	case V4L2_CID_FLASH_LED_MODE:
 		vd1941_read(sensor, VD1941_REG_GPIO_CTRL, &gpio_ctrl, &ret);
+		gpio_ctrl_new = gpio_ctrl;
 		for_each_set_bit(io, &sensor->ext_leds_mask, VD1941_NB_GPIOS)
-			assign_bit(io, (unsigned long *)&gpio_ctrl, ctrl->val);
-		vd1941_write(sensor, VD1941_REG_GPIO_CTRL, gpio_ctrl, &ret);
+			assign_bit(io, &gpio_ctrl_new, ctrl->val);
+		vd1941_write(sensor, VD1941_REG_GPIO_CTRL,
+			     (unsigned int)gpio_ctrl_new, &ret);
 		break;
 	case V4L2_CID_DARKCAL_PEDESTAL:
 		ret = vd1941_write(sensor, VD1941_REG_DARKCAL_PEDESTAL,
