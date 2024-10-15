@@ -194,7 +194,7 @@ int dev_err_probe(const struct device *dev, int err, const char *fmt, ...)
 /* Line length and Frame length (settings are for standard 10bits ADC mode) */
 #define VD1941_LINE_LENGTH_MIN				3372
 #define VD1941_FRAME_LENGTH_DEF_30FPS			3707
-#define VD1941_VBLANK_MIN				50 // TODO : characterize Me
+#define VD1941_VBLANK_MIN				240
 
 /* Exposure settings */
 #define VD1941_EXPOSURE_MARGIN				100 // TODO : characterize Me
@@ -258,11 +258,9 @@ struct vd1941_mode {
  *
  * Depending of the configured shutter mode (Rolling vs Global), the max frame
  * rate can be different. In full resolution the hardware supports up to :
- * - 54 fps in Rolling Shutter
- * - 109 fps in Global Shutter (depending on MIPI bandwidth)
+ * - 50 fps in Rolling Shutter
+ * - 100 fps in Global Shutter (depending on MIPI bandwidth)
  *
- * For simplicity, the current driver implementation clamps the maximum
- * framerate on the limiting RS mode: 54 fps.
  * Note that in lower resolution, framerate can be higher.
  */
 
@@ -411,6 +409,7 @@ struct vd1941 {
 	u32 xclk_freq;
 	u32 pixel_clock;
 	u8 nb_of_lane;
+	u32 mipi_bandwidth;
 	u8 oif_lane_phy_map;
 	u8 oif_lane_phy_swap;
 	u32 gpios[VD1941_NB_GPIOS];
@@ -420,6 +419,7 @@ struct vd1941 {
 	/* lock to protect all members below */
 	struct mutex lock;
 	struct v4l2_ctrl_handler ctrl_handler;
+	struct v4l2_ctrl *pixrate_ctrl;
 	struct v4l2_ctrl *hblank_ctrl;
 	struct v4l2_ctrl *vblank_ctrl;
 	struct {
@@ -767,11 +767,61 @@ static int vd1941_g_volatile_ctrl(struct v4l2_ctrl *ctrl)
 	return ret;
 }
 
+static void vd1941_update_controls(struct vd1941 *sensor)
+{
+	const struct v4l2_rect *crop = &sensor->active_crop;
+	unsigned int is_gs = (sensor->shutter_ctrl->val == VD1941_GS_MODE);
+
+	/* With 2 row of ADC in GS mode, the pixel rate is virtually doubled */
+	unsigned int virt_pixrate = sensor->pixel_clock * (is_gs ? 2 : 1);
+
+	/*
+	 * The pixel rate being doubled, the line length is extended (doubled)
+	 * to avoid any bottleneck on the mipi link.
+	 */
+	unsigned int hblank =
+		(VD1941_LINE_LENGTH_MIN * (is_gs ? 2 : 1)) - crop->width;
+
+	/* Compute the max line rate on the mipi link based on pixel depth */
+	unsigned int mipi_linerate_max =
+		sensor->mipi_bandwidth /
+		(crop->width * vd1941_get_bpp(sensor->active_fmt.code));
+
+	/* Compute the mins line_length and hblank given the mipi bandwidth */
+	unsigned int line_length_min = virt_pixrate / mipi_linerate_max;
+	unsigned int hblank_min = ((line_length_min < VD1941_LINE_LENGTH_MIN) ?
+					   VD1941_LINE_LENGTH_MIN :
+					   line_length_min) -
+				  crop->width;
+
+	/* Adjust vblank with a target of 30FPS */
+	unsigned int vblank_min = VD1941_VBLANK_MIN;
+	unsigned int vblank = VD1941_FRAME_LENGTH_DEF_30FPS - crop->height;
+	unsigned int vblank_max = 0xffff - crop->height;
+
+	/* TODO : Adjust exposure range */
+	unsigned int expo_min = (is_gs ? 4 : 2);
+	unsigned int expo_max = crop->height + vblank - VD1941_EXPOSURE_MARGIN;
+
+	/* Update pixel_rate, blankings and exposure controls */
+	__v4l2_ctrl_modify_range(sensor->pixrate_ctrl, virt_pixrate,
+				 virt_pixrate, 1, virt_pixrate);
+	__v4l2_ctrl_modify_range(sensor->hblank_ctrl, hblank_min, hblank, 1,
+				 hblank);
+	__v4l2_ctrl_modify_range(sensor->vblank_ctrl, vblank_min, vblank_max, 1,
+				 vblank);
+	__v4l2_ctrl_s_ctrl(sensor->vblank_ctrl, vblank);
+	__v4l2_ctrl_modify_range(sensor->expo_ctrl, expo_min, expo_max, 1,
+				 VD1941_EXPOSURE_DEFAULT);
+	__v4l2_ctrl_s_ctrl(sensor->expo_ctrl, VD1941_EXPOSURE_DEFAULT);
+}
+
 static int vd1941_s_ctrl(struct v4l2_ctrl *ctrl)
 {
 	struct v4l2_subdev *sd = ctrl_to_sd(ctrl);
 	struct vd1941 *sensor = to_vd1941(sd);
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
+	unsigned int line_length = 0;
 	unsigned int frame_length = 0;
 	unsigned int expo_max;
 	unsigned int gpio_ctrl;
@@ -789,6 +839,9 @@ static int vd1941_s_ctrl(struct v4l2_ctrl *ctrl)
 		expo_max = frame_length - VD1941_EXPOSURE_MARGIN;
 		__v4l2_ctrl_modify_range(sensor->expo_ctrl, 0, expo_max, 1,
 					 VD1941_EXPOSURE_DEFAULT);
+		break;
+	case V4L2_CID_SHUTTER_MODE:
+		vd1941_update_controls(sensor);
 		break;
 	default:
 		break;
@@ -811,15 +864,14 @@ static int vd1941_s_ctrl(struct v4l2_ctrl *ctrl)
 		ret = vd1941_write(sensor, VD1941_REG_DARKCAL_ENABLE,
 				   !ctrl->val, NULL);
 		break;
+	case V4L2_CID_HBLANK:
+		line_length = sensor->active_crop.width + ctrl->val;
+		ret = vd1941_write(sensor, VD1941_REG_LINE_LENGTH, line_length,
+				   NULL);
+		break;
 	case V4L2_CID_VBLANK:
-		/*
-		 * Vblank is temporarily handled in vd1941_stream_on() to
-		 * properly support GS - specific - timings.
-		 */
-		/*
-		 *ret = vd1941_write(sensor, VD1941_REG_FRAME_LENGTH,
-		 *	   frame_length, NULL);
-		 */
+		ret = vd1941_write(sensor, VD1941_REG_FRAME_LENGTH,
+				   frame_length, NULL);
 		break;
 	case V4L2_CID_EXPOSURE:
 		ret = vd1941_write(sensor, VD1941_REG_INTEGRATION_TIME_PRIMARY,
@@ -967,30 +1019,6 @@ static const struct v4l2_ctrl_config vd1941_shutter_ctrl = {
 	.qmenu = vd1941_shutter_menu,
 };
 
-static void vd1941_update_controls(struct vd1941 *sensor)
-{
-	unsigned int hblank =
-		VD1941_LINE_LENGTH_MIN - sensor->active_crop.width;
-	unsigned int vblank_min = VD1941_VBLANK_MIN;
-	unsigned int vblank =
-		VD1941_FRAME_LENGTH_DEF_30FPS - sensor->active_crop.height;
-	unsigned int vblank_max = 0xffff - sensor->active_crop.height;
-	unsigned int frame_length = sensor->active_crop.height + vblank;
-	unsigned int expo_min =
-		((sensor->shutter_ctrl->val == VD1941_GS_MODE) ? 4 : 2);
-	unsigned int expo_max = frame_length - VD1941_EXPOSURE_MARGIN;
-
-	/* Update blanking and exposure (ranges + values) */
-	__v4l2_ctrl_modify_range(sensor->hblank_ctrl, hblank, hblank, 1,
-				 hblank);
-	__v4l2_ctrl_modify_range(sensor->vblank_ctrl, vblank_min, vblank_max, 1,
-				 vblank);
-	__v4l2_ctrl_s_ctrl(sensor->vblank_ctrl, vblank);
-	__v4l2_ctrl_modify_range(sensor->expo_ctrl, expo_min, expo_max, 1,
-				 VD1941_EXPOSURE_DEFAULT);
-	__v4l2_ctrl_s_ctrl(sensor->expo_ctrl, VD1941_EXPOSURE_DEFAULT);
-}
-
 static int vd1941_init_controls(struct vd1941 *sensor)
 {
 	const struct v4l2_ctrl_ops *ops = &vd1941_ctrl_ops;
@@ -1031,11 +1059,12 @@ static int vd1941_init_controls(struct vd1941 *sensor)
 	if (ctrl)
 		ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 
-	ctrl = v4l2_ctrl_new_std(hdl, ops, V4L2_CID_PIXEL_RATE,
-				 sensor->pixel_clock, sensor->pixel_clock, 1,
-				 sensor->pixel_clock);
-	if (ctrl)
-		ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+	sensor->pixrate_ctrl = v4l2_ctrl_new_std(hdl, ops, V4L2_CID_PIXEL_RATE,
+						 sensor->pixel_clock,
+						 sensor->pixel_clock, 1,
+						 sensor->pixel_clock);
+	if (sensor->pixrate_ctrl)
+		sensor->pixrate_ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 
 	/*
 	 * Analog gain [1, 4] is computed with the following logic :
@@ -1057,8 +1086,6 @@ static int vd1941_init_controls(struct vd1941 *sensor)
 					      VD1941_EXPOSURE_DEFAULT);
 	sensor->hblank_ctrl =
 		v4l2_ctrl_new_std(hdl, ops, V4L2_CID_HBLANK, 1, 1, 1, 1);
-	if (sensor->hblank_ctrl)
-		sensor->hblank_ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 	sensor->vblank_ctrl =
 		v4l2_ctrl_new_std(hdl, ops, V4L2_CID_VBLANK, 1, 1, 1, 1);
 
@@ -1119,66 +1146,16 @@ free_ctrls:
  * Videos ops
  */
 
-static int vd1941_compute_gs_blankings(struct vd1941 *sensor,
-				       unsigned int *line_length,
-				       unsigned int *frame_length)
-{
-	unsigned int line_length_rs = *line_length;
-	unsigned int frame_length_rs = *frame_length;
-	const struct v4l2_rect *crop = &sensor->active_crop;
-
-	/* Compute available MIPI Bandwidth */
-	unsigned int mipi_mbps = ((sensor->nb_of_lane == 2) ?
-					  VD1941_LINK_FREQ_DEF_2LANES :
-					  VD1941_LINK_FREQ_DEF_4LANES) *
-				 2 * sensor->nb_of_lane;
-
-	/* Depending of format, compute the max line rate on the mipi link */
-	unsigned int mipi_linerate_max =
-		mipi_mbps /
-		(crop->width * vd1941_get_bpp(sensor->active_fmt.code));
-
-	/* With 2 ADC in GS mode, the pixel clock is virtually doubled */
-	unsigned int virt_pixel_clock =
-		sensor->pixel_clock *
-		((sensor->shutter_ctrl->val == VD1941_GS_MODE) ? 2 : 1);
-
-	/* Compute the min line length given the mipi bandwidth */
-	unsigned int line_length_gs = virt_pixel_clock / mipi_linerate_max;
-
-	if (line_length_gs < VD1941_LINE_LENGTH_MIN)
-		*line_length = VD1941_LINE_LENGTH_MIN;
-	else
-		*line_length = line_length_gs;
-
-	/* Adjuste frame length to fit with the expectation */
-	*frame_length = frame_length_rs * line_length_rs / *line_length;
-
-	return 0;
-}
-
 static int vd1941_stream_on(struct vd1941 *sensor)
 {
 	const struct v4l2_rect *crop = &sensor->active_crop;
-	/* TODO : ensure correctness */
 	unsigned int csi_mbps = ((sensor->nb_of_lane == 2) ?
 					 VD1941_LINK_FREQ_DEF_2LANES :
 					 VD1941_LINK_FREQ_DEF_4LANES) * 2;
 	unsigned int lane_nb = ((sensor->nb_of_lane == 2) ? VD1941_LANES_NB_2 :
 							    VD1941_LANES_NB_4);
-	/* default line/frame length to RS timings */
-	unsigned int line_length = VD1941_LINE_LENGTH_MIN;
-	unsigned int frame_length =
-		sensor->active_crop.height + sensor->vblank_ctrl->val;
 	unsigned int io;
 	int ret = 0;
-
-	/* configure video timings */
-	if (sensor->shutter_ctrl->val == VD1941_GS_MODE)
-		ret = vd1941_compute_gs_blankings(sensor, &line_length,
-						  &frame_length);
-	vd1941_write(sensor, VD1941_REG_LINE_LENGTH, line_length, &ret);
-	vd1941_write(sensor, VD1941_REG_FRAME_LENGTH, frame_length, &ret);
 
 	/* configure output */
 	vd1941_write(sensor, VD1941_REG_LANE_NB_SEL, lane_nb, &ret);
@@ -1846,6 +1823,12 @@ static int vd1941_check_csi_conf(struct vd1941 *sensor,
 		ret = -EINVAL;
 		goto done;
 	}
+
+	/* Compute MIPI bandwidth */
+	sensor->mipi_bandwidth = ((n_lanes == 2) ?
+					  VD1941_LINK_FREQ_DEF_2LANES :
+					  VD1941_LINK_FREQ_DEF_4LANES) *
+				 2 * n_lanes;
 
 done:
 #if KERNEL_VERSION(4, 20, 0) > LINUX_VERSION_CODE
