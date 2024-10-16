@@ -197,8 +197,8 @@ int dev_err_probe(const struct device *dev, int err, const char *fmt, ...)
 #define VD1941_VBLANK_MIN				240
 
 /* Exposure settings */
-#define VD1941_EXPOSURE_MARGIN				100 // TODO : characterize Me
-#define VD1941_EXPOSURE_DEFAULT				20
+#define VD1941_EXPOSURE_MARGIN				27
+#define VD1941_EXPOSURE_DEFAULT				840
 
 /* Output Interface settings */
 #define VD1941_MAX_CSI_DATA_LANES			4
@@ -799,8 +799,12 @@ static void vd1941_update_controls(struct vd1941 *sensor)
 	unsigned int vblank = VD1941_FRAME_LENGTH_DEF_30FPS - crop->height;
 	unsigned int vblank_max = 0xffff - crop->height;
 
-	/* TODO : Adjust exposure range */
-	unsigned int expo_min = (is_gs ? 4 : 2);
+	/*
+	 * Exposure limits (expressed in lines) :
+	 * - GS mode : [4   .. FRAME_LENGTH - 27]
+	 * - RS mode : [1.5 .. FRAME_LENGTH - 10]
+	 */
+	unsigned int expo_min = 4;
 	unsigned int expo_max = crop->height + vblank - VD1941_EXPOSURE_MARGIN;
 
 	/* Update pixel_rate, blankings and exposure controls */
