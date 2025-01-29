@@ -8,27 +8,27 @@
 	fragment@0 {
 		target-path="/";
 		__overlay__ {
-			camera_clk_25M: camera_clk_25M {
+			camera_clk2_25M: camera_clk2_25M {
 				#clock-cells = <0>;
 				compatible = "fixed-clock";
 				clock-frequency = <25000000>;
 			};
 
-			v1v2: v1v2 {
+			v1v2b: v1v2b {
 				compatible = "regulator-fixed";
 				regulator-name = "fixed-supply-1v2";
 				regulator-min-microvolt = <1200000>;
 				regulator-max-microvolt = <1200000>;
 			};
 
-			v1v8: v1v8 {
+			v1v8b: v1v8b {
 				compatible = "regulator-fixed";
 				regulator-name = "fixed-supply-1v8";
 				regulator-min-microvolt = <1800000>;
 				regulator-max-microvolt = <1800000>;
 			};
 
-			v2v8: v2v8 {
+			v2v8b: v2v8b {
 				compatible = "regulator-fixed";
 				regulator-name = "fixed-supply-2v8";
 				regulator-min-microvolt = <2800000>;
@@ -49,12 +49,12 @@
 				compatible = "st,vd1941";
 				reg = <0x10>;
 
-				clocks = <&camera_clk_25M>;
+				clocks = <&camera_clk2_25M>;
 				clock-names = "xclk";
 
-				vcore-supply = <&v1v2>;
-				vddio-supply = <&v1v8>;
-				vana-supply = <&v2v8>;
+				vcore-supply = <&v1v2b>;
+				vddio-supply = <&v1v8b>;
+				vana-supply = <&v2v8b>;
 
 				reset-gpios = <&gpio 5 1>;
 
