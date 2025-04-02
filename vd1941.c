@@ -14,8 +14,6 @@
 #include <linux/regmap.h>
 #include <linux/regulator/consumer.h>
 
-#include <asm/unaligned.h>
-
 #include <media/v4l2-async.h>
 #include <media/v4l2-ctrls.h>
 #include <media/v4l2-device.h>
@@ -25,6 +23,12 @@
 
 /* Backward compatibility */
 #include <linux/version.h>
+
+#if KERNEL_VERSION(6, 12, 0) > LINUX_VERSION_CODE
+#include <asm/unaligned.h>
+#else
+#include <linux/unaligned.h>
+#endif
 
 #if KERNEL_VERSION(6, 8, 0) > LINUX_VERSION_CODE
 /*
@@ -1403,9 +1407,11 @@ static int vd1941_get_pad_fmt(struct v4l2_subdev *sd,
 #elif KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
 		pad_fmt = v4l2_subdev_get_try_format(&sensor->sd, sd_state,
 						     sd_fmt->pad);
-#else
+#elif KERNEL_VERSION(6, 8, 0) > LINUX_VERSION_CODE
 		pad_fmt = v4l2_subdev_get_pad_format(&sensor->sd, sd_state,
 						     sd_fmt->pad);
+#else
+		pad_fmt = v4l2_subdev_state_get_format(sd_state, sd_fmt->pad);
 #endif
 		/* Image mbus code could change with H/V flips */
 		pad_fmt->code = vd1941_get_mbus_code(sensor, pad_fmt->code);
@@ -1461,8 +1467,10 @@ static int vd1941_set_pad_fmt(struct v4l2_subdev *sd,
 		pad_fmt = v4l2_subdev_get_try_format(sd, cfg, sd_fmt->pad);
 #elif KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
 		pad_fmt = v4l2_subdev_get_try_format(sd, sd_state, sd_fmt->pad);
-#else
+#elif KERNEL_VERSION(6, 8, 0) > LINUX_VERSION_CODE
 		pad_fmt = v4l2_subdev_get_pad_format(sd, sd_state, sd_fmt->pad);
+#else
+		pad_fmt = v4l2_subdev_state_get_format(sd_state, 0);
 #endif
 		*pad_fmt = sd_fmt->format;
 	} else if (sd_fmt->format.width != sensor->active_fmt.width ||
@@ -1517,9 +1525,12 @@ static int vd1941_get_selection(struct v4l2_subdev *sd,
 #if KERNEL_VERSION(5, 14, 0) > LINUX_VERSION_CODE
 static int vd1941_init_cfg(struct v4l2_subdev *sd,
 			   struct v4l2_subdev_pad_config *cfg)
-#else
+#elif KERNEL_VERSION(6, 8, 0) > LINUX_VERSION_CODE
 static int vd1941_init_cfg(struct v4l2_subdev *sd,
 			   struct v4l2_subdev_state *sd_state)
+#else
+static int vd1941_init_state(struct v4l2_subdev *sd,
+			     struct v4l2_subdev_state *sd_state)
 #endif
 {
 	struct vd1941 *sensor = to_vd1941(sd);
@@ -1540,7 +1551,9 @@ static const struct v4l2_subdev_core_ops vd1941_core_ops = {
 };
 
 static const struct v4l2_subdev_pad_ops vd1941_pad_ops = {
+#if KERNEL_VERSION(6, 8, 0) > LINUX_VERSION_CODE
 	.init_cfg = vd1941_init_cfg,
+#endif
 	.enum_mbus_code = vd1941_enum_mbus_code,
 	.enum_frame_size = vd1941_enum_frame_size,
 	.get_fmt = vd1941_get_pad_fmt,
@@ -1558,6 +1571,12 @@ static const struct media_entity_operations vd1941_subdev_entity_ops = {
 	.link_validate = v4l2_subdev_link_validate,
 };
 
+#if KERNEL_VERSION(6, 8, 0) > LINUX_VERSION_CODE
+#else
+static const struct v4l2_subdev_internal_ops vd1941_internal_ops = {
+	.init_state = vd1941_init_state,
+};
+#endif
 /* -----------------------------------------------------------------------------
  * Boot section (includes Certificate configuration, FMW and VT Patches)
  */
@@ -2056,6 +2075,10 @@ static int vd1941_subdev_init(struct vd1941 *sensor)
 
 	/* Init sub device */
 	v4l2_i2c_subdev_init(&sensor->sd, client, &vd1941_subdev_ops);
+#if KERNEL_VERSION(6, 8, 0) > LINUX_VERSION_CODE
+#else
+	sensor->sd.internal_ops = &vd1941_internal_ops;
+#endif
 	sensor->sd.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE |
 			    V4L2_SUBDEV_FL_HAS_EVENTS;
 	sensor->sd.entity.ops = &vd1941_subdev_entity_ops;
