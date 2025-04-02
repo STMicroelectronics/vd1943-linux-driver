@@ -1524,12 +1524,12 @@ static int vd1941_init_cfg(struct v4l2_subdev *sd,
 {
 	struct vd1941 *sensor = to_vd1941(sd);
 	unsigned int def_mode = VD1941_DEFAULT_MODE;
+	unsigned int def_mbus_code =
+		vdx941_configs[sensor->model][VD1941_GS_MODE][0].mbus_code;
 
 	/* Default resolution mode / raw8 */
-	vd1941_update_img_pad_format(
-		sensor, &vd1941_supported_modes[def_mode],
-		vdx941_configs[sensor->model][VD1941_GS_MODE][0].mbus_code,
-		&sensor->active_fmt);
+	vd1941_update_img_pad_format(sensor, &vd1941_supported_modes[def_mode],
+				     def_mbus_code, &sensor->active_fmt);
 
 	return 0;
 }
@@ -2035,7 +2035,8 @@ static int vd1941_detect(struct vd1941 *sensor)
 	 *	dev_warn(&client->dev,
 	 *		 "Found %s sensor, while %s model is defined in DT",
 	 *		 (is_rgbnir) ? "RGBNir" : "Mono",
-	 *		 (sensor->model == VD1941_MODEL_VD1941) ? "vd1941" : "vd5941");
+	 *		 (sensor->model == VD1941_MODEL_VD1941) ? "vd1941" :
+	 *							  "vd5941");
 	 *	return -ENODEV;
 	 *}
 	 */
@@ -2047,6 +2048,8 @@ static int vd1941_subdev_init(struct vd1941 *sensor)
 {
 	struct i2c_client *client = sensor->i2c_client;
 	unsigned int def_mode = VD1941_DEFAULT_MODE;
+	unsigned int def_mbus_code =
+		vdx941_configs[sensor->model][VD1941_GS_MODE][0].mbus_code;
 	int ret;
 
 	mutex_init(&sensor->lock);
@@ -2075,10 +2078,8 @@ static int vd1941_subdev_init(struct vd1941 *sensor)
 
 	/* Init vd1941 struct : default resolution + raw8 */
 	sensor->streaming = false;
-	vd1941_update_img_pad_format(
-		sensor, &vd1941_supported_modes[def_mode],
-		vdx941_configs[sensor->model][VD1941_GS_MODE][0].mbus_code,
-		&sensor->active_fmt);
+	vd1941_update_img_pad_format(sensor, &vd1941_supported_modes[def_mode],
+				     def_mbus_code, &sensor->active_fmt);
 	sensor->active_crop.width = vd1941_supported_modes[def_mode].width;
 	sensor->active_crop.height = vd1941_supported_modes[def_mode].height;
 	sensor->active_crop.left = 320;
