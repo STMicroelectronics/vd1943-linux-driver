@@ -556,15 +556,8 @@ out:
 	return ret;
 }
 #else
-static int vd1941_read(struct vd1941 *sensor, u32 reg, u32 *val, int *err)
-{
-	u64 value;
-
-	cci_read((sensor)->regmap, reg, &value, err);
-	*val = (u32)value;
-
-	return *err;
-}
+#define vd1941_read(sensor, reg, val, err) \
+	cci_read((sensor)->regmap, reg, (u64 *)val, err)
 
 #define vd1941_write(sensor, reg, val, err) \
 	cci_write((sensor)->regmap, reg, (u64)val, err)
