@@ -31,83 +31,42 @@ pipeline {
 		stage('Build') {
 			steps {
 				dir('pristine') {
-					sh 'make KVERSION=$(ls /lib/modules/) -C src'
+					sh 'make KVERSION=$(ls /lib/modules/)'
 				}
 			}
 		}
 		stage('Check') {
 			steps {
-				sh 'git clone https://git.linuxtv.org/media_tree.git --depth 1 -b master || true' // if already cloned
-				dir('media_tree') {
-					sh 'git fetch --depth 1'
-					sh 'git reset --hard origin/master'
-					sh 'find ../pristine/ -name "*[^mod].c" -not -path "*debian*" -print0 | xargs -0 scripts/checkpatch.pl --max-line-length=80 --strict --ignore=LINUX_VERSION_CODE --ignore=UNDOCUMENTED_DT_STRING -f'
+				dir('pristine') {
+					sh 'find -name "*.c" -not -name "*mod.c" -not -path "*debian*" -print0 | xargs -0 /usr/src/linux-headers-$(ls /lib/modules/)/scripts/checkpatch.pl --no-tree --max-line-length=80 --strict --ignore=LINUX_VERSION_CODE --ignore=UNDOCUMENTED_DT_STRING -f'
 				}
 			}
 		}
 		stage('Package') {
-			when { anyOf {
-				environment name: 'BRANCH_NAME', value: 'master';
+			when {
 				environment name: 'BRANCH_NAME', value: 'debian'
-			}}
+			}
 			steps {
 				dir('pristine') {
-					dir('debianizer') {
-						git credentialsId: 'af76724f-9593-4f6c-a5cc-1548eb8b0e14',
-							url: 'ssh://gitolite@codex.cro.st.com/img-application-sw-linux/debianizer.git'
-					}
 					script {
-						if (env.BRANCH_NAME == 'debian') {
-							sh 'debianizer/debianizer.sh --zip'
-						} else {
-							sh 'debianizer/debianizer.sh --use-origin --snapshot --zip'
-						}
+						sh 'dpkg-buildpackage -us -uc -b'
+						sh 'lintian || true'
 					}
 				}
-			}
-		}
-		stage('Upload') {
-			when { anyOf {
-				environment name: 'BRANCH_NAME', value: 'master';
-				environment name: 'BRANCH_NAME', value: 'debian'
-			}}
-			steps {
 				script {
-					if (env.BRANCH_NAME == 'debian') {
-						rtUpload (
-							serverId: 'artifactory-azure',
-							spec: '''{
-								"files": [
-									{
-										"pattern": "vd1941*.deb",
-										"target": "imgswlinux-debian-local/pool/vd1941-dkms/stable/",
-										"props": "deb.distribution=stable;deb.component=main;deb.architecture=armhf;deb.architecture=arm64"
-									},
-									{
-										"pattern": "vd1941*.zip",
-										"target": "imgswlinux-releases-imgappswlinux-codex-st-com/drivers/vd1941/stable/"
-									}
-								]
-							}'''
-						)
-					} else {
-						rtUpload (
-							serverId: 'artifactory-azure',
-							spec: '''{
-								"files": [
-									{
-										"pattern": "vd1941*.deb",
-										"target": "imgswlinux-debian-local/pool/vd1941-dkms/unstable/",
-										"props": "deb.distribution=unstable;deb.component=main;deb.architecture=armhf;deb.architecture=arm64"
-									},
-									{
-										"pattern": "vd1941*.zip",
-										"target": "imgswlinux-releases-imgappswlinux-codex-st-com/drivers/vd1941/unstable/"
-									}
-								]
-							}'''
-						)
-					}
+					rtUpload (
+						serverId: 'artifactory-azure',
+						spec: '''{
+							"files": [
+								{
+									"pattern": "vd1941*.deb",
+									"target": "imgswlinux-debian-local/pool/vd1941-dkms/stable/",
+									"props": "deb.distribution=stable;deb.component=main;deb.architecture=armhf;deb.architecture=arm64"
+								}
+							]
+						}''',
+						failNoOp: true
+					)
 				}
 			}
 		}
@@ -128,4 +87,3 @@ pipeline {
 		}
 	}
 }
-
