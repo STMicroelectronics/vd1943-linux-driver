@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.0] - 2025-04-03
+- Add compatibility with kernels up to 6.12
+- devicetree: change label names in cam1 overlays to allow dual cam
+- Improve exposure settings
+- Proper implementation of GS and RS timing
+
 ## [0.1.0] - 2024-10-11
 - Alpha release - basic support of the following features
 - Support both variants : RGBiR (vd1941) / Mono (vd5941)
