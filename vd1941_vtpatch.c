@@ -326,7 +326,7 @@ struct vtram_area {
 	int size;
 };
 
-struct vtram_area vtpatch_desc[] = {
+static const struct vtram_area vtpatch_desc[] = {
 	/* gt_ram_pat_content */
 	{ .offset = 0x5bc0, .size = 0x5e1f - 0x5bc0 + 1 },
 	/* gt_ram_seq1_content */
@@ -343,4 +343,4 @@ struct vtram_area vtpatch_desc[] = {
 	{ .offset = 0x5000, .size = 0x526f - 0x5000 + 1 },
 };
 
-int vtpatch_area_nb = ARRAY_SIZE(vtpatch_desc);
+static const int vtpatch_area_nb = ARRAY_SIZE(vtpatch_desc);
