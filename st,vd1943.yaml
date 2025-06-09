@@ -2,17 +2,17 @@
 # Copyright (c) 2024 STMicroelectronics SA.
 %YAML 1.2
 ---
-$id: http://devicetree.org/schemas/media/i2c/st,vd1941.yaml#
+$id: http://devicetree.org/schemas/media/i2c/st,vd1943.yaml#
 $schema: http://devicetree.org/meta-schemas/core.yaml#
 
-title: STMicroelectronics VD1941 Image Sensor
+title: STMicroelectronics VD1943 Image Sensor
 
 maintainers:
   - Benjamin Mugnier <benjamin.mugnier@foss.st.com>
   - Sylvain Petinot <sylvain.petinot@foss.st.com>
 
 description: |-
-  The STMicroelectronics VD1941 is a 5.1 M combined global shutter and rolling
+  The STMicroelectronics VD1943 is a 5.1 M combined global shutter and rolling
   shutter image sensor with an active array size of 2560 x 1984. It is
   programmable through I2C, the address is fixed to 0x20. The sensor output is
   available via CSI-2, which is configured as either 2 or 4 data lanes. The
@@ -22,7 +22,7 @@ description: |-
 
 properties:
   compatible:
-    const: st,vd1941
+    const: st,vd1943
 
   reg:
     maxItems: 1
@@ -116,7 +116,7 @@ examples:
         #size-cells = <0>;
 
         camera-sensor@10 {
-            compatible = "st,vd1941";
+            compatible = "st,vd1943";
             reg = <0x20>;
 
             clocks = <&camera_clk_25M>;

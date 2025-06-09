@@ -61,8 +61,8 @@ pipeline {
 						spec: '''{
 							"files": [
 								{
-									"pattern": "vd1941*.deb",
-									"target": "imgswlinux-debian-local/pool/vd1941-dkms/stable/",
+									"pattern": "vd1943*.deb",
+									"target": "imgswlinux-debian-local/pool/vd1943-dkms/stable/",
 									"props": "deb.distribution=stable;deb.component=main;deb.architecture=armhf;deb.architecture=arm64"
 								}
 							]
@@ -77,7 +77,7 @@ pipeline {
 	post {
 		always {
 			// Remove debian packaging stuff
-			sh 'find . -maxdepth 1 -type f -name "vd1941*" -exec rm -v "{}" \\;'
+			sh 'find . -maxdepth 1 -type f -name "vd1943*" -exec rm -v "{}" \\;'
 
 			// Send mail
 			emailext (
