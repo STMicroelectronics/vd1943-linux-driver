@@ -90,18 +90,20 @@ int dev_err_probe(const struct device *dev, int err, const char *fmt, ...)
 
 /* Register Map */
 #define VD1943_REG_MODEL_ID				CCI_REG32_LE(0x0000)
-#define VD1943_MODEL_ID					0x53393430
+#define VD1943_MODEL_ID_1_3				0x53393430
+#define VD1943_MODEL_ID_1_4				0x53393431
 #define VD1943_REG_ROM_REVISION				CCI_REG16_LE(0x000c)
 #define VD1943_ROM_1_3					0x400
+#define VD1943_ROM_1_4					0x540
 #define VD1943_REG_CFA_SELECTION			CCI_REG16_LE(0x000e)
 #define VD1943_OPTICAL_RGBIR				0x00
 #define VD1943_OPTICAL_MONO				0x01
-#define VD1943_REG_TEMPERATURE				CCI_REG16_LE(0x006a)
 #define VD1943_REG_SYSTEM_FSM				CCI_REG8(0x0044)
 #define VD1943_SYSTEM_FSM_SYSTEM_UP			0x01
 #define VD1943_SYSTEM_FSM_BOOT				0x02
 #define VD1943_SYSTEM_FSM_SW_STBY			0x03
 #define VD1943_SYSTEM_FSM_STREAMING			0x04
+#define VD1943_REG_TEMPERATURE				CCI_REG16_LE(0x006a)
 #define VD1943_REG_SYSTEM_UP				CCI_REG8(0x0514)
 #define VD1943_CMD_ACK					0x00
 #define VD1943_CMD_START_SENSOR				0x01
@@ -420,6 +422,7 @@ struct vd1943 {
 	u8 ext_vt_sync;
 	unsigned long ext_leds_mask;
 	enum vd1943_models model;
+	bool is_fastboot;
 	/* lock to protect all members below */
 	struct mutex lock;
 	struct v4l2_ctrl_handler ctrl_handler;
@@ -1573,7 +1576,7 @@ static const struct v4l2_subdev_internal_ops vd1943_internal_ops = {
 /* -----------------------------------------------------------------------------
  * Boot section (includes Certificate configuration, FMW and VT Patches)
  */
-static int vd1943_boot(struct vd1943 *sensor)
+static int vd1943_patch(struct vd1943 *sensor)
 {
 	struct i2c_client *client = sensor->i2c_client;
 	const u8 *certificate = (sensor->model == VD1943_MODEL_VD1943) ?
@@ -1608,6 +1611,13 @@ static int vd1943_boot(struct vd1943 *sensor)
 		return ret;
 	}
 	dev_info(&client->dev, "firmware patch applied");
+
+	return ret;
+}
+
+static int vd1943_boot(struct vd1943 *sensor)
+{
+	int ret = 0;
 
 	vd1943_write(sensor, VD1943_REG_BOOT, VD1943_CMD_END_BOOT, &ret);
 	vd1943_poll_reg(sensor, VD1943_REG_BOOT, VD1943_CMD_ACK, &ret);
@@ -1669,7 +1679,7 @@ static int vd1943_power_on(struct vd1943 *sensor)
 	}
 
 	gpiod_set_value_cansleep(sensor->reset_gpio, 0);
-	usleep_range(500, 1000);
+	usleep_range(6000, 6500);
 	ret = vd1943_wait_state(sensor, VD1943_SYSTEM_FSM_SYSTEM_UP, NULL);
 	if (ret) {
 		dev_err(&client->dev, "Sensor reset failed %d\n", ret);
@@ -1711,16 +1721,26 @@ static int vd1943_power_patch(struct vd1943 *sensor)
 		return ret;
 	}
 
+	if (!sensor->is_fastboot) {
+		ret = vd1943_patch(sensor);
+		if (ret) {
+			dev_err(&client->dev, "sensor patch failed %d", ret);
+			return ret;
+		}
+	}
+
 	ret = vd1943_boot(sensor);
 	if (ret) {
 		dev_err(&client->dev, "sensor boot failed %d", ret);
 		return ret;
 	}
 
-	ret = vd1943_vt_patch(sensor);
-	if (ret) {
-		dev_err(&client->dev, "sensor VT patch failed %d", ret);
-		return ret;
+	if (!sensor->is_fastboot) {
+		ret = vd1943_vt_patch(sensor);
+		if (ret) {
+			dev_err(&client->dev, "sensor VT patch failed %d", ret);
+			return ret;
+		}
 	}
 
 	return 0;
@@ -2010,8 +2030,8 @@ static int vd1943_detect(struct vd1943 *sensor)
 	struct device *dev = &client->dev;
 	int model_id = 0;
 	int rom_version = 0;
-	// int optical_version = 0;
-	// int is_rgbnir = 0;
+	int optical_version = 0;
+	int is_rgbnir = 0;
 	int ret = 0;
 
 	sensor->model = (uintptr_t)device_get_match_data(dev);
@@ -2020,7 +2040,8 @@ static int vd1943_detect(struct vd1943 *sensor)
 	if (ret)
 		return ret;
 
-	if (model_id != VD1943_MODEL_ID) {
+	if (model_id != VD1943_MODEL_ID_1_3 &&
+	    model_id != VD1943_MODEL_ID_1_4) {
 		dev_err(&client->dev, "Unsupported sensor id : %x", model_id);
 		return -ENODEV;
 	}
@@ -2029,29 +2050,34 @@ static int vd1943_detect(struct vd1943 *sensor)
 	if (ret)
 		return ret;
 
-	if (rom_version != VD1943_ROM_1_3) {
+	if (rom_version == VD1943_ROM_1_3) {
+		sensor->is_fastboot = false;
+	} else if (rom_version == VD1943_ROM_1_4) {
+		sensor->is_fastboot = true;
+	} else {
 		dev_err(&client->dev, "Unsupported rom version : %x",
 			rom_version);
 		return -ENODEV;
 	}
 
-	/* TODO : Enable optical_version check when moving on HW cut 1.4 */
-	/*ret = vd1943_read(sensor, VD1943_REG_CFA_SELECTION, &optical_version,
-	 *		  NULL);
-	 *if (ret)
-	 *	return ret;
-	 *
-	 *is_rgbnir = ((optical_version & 0x0f) == VD1943_OPTICAL_RGBIR);
-	 *if ((is_rgbnir && sensor->model == VD1943_MODEL_VD5943) ||
-	 *    (!is_rgbnir && sensor->model == VD1943_MODEL_VD1943)) {
-	 *	dev_warn(&client->dev,
-	 *		 "Found %s sensor, while %s model is defined in DT",
-	 *		 (is_rgbnir) ? "RGBNir" : "Mono",
-	 *		 (sensor->model == VD1943_MODEL_VD1943) ? "vd1943" :
-	 *							  "vd5943");
-	 *	return -ENODEV;
-	 *}
-	 */
+	if (sensor->is_fastboot) {
+		ret = vd1943_read(sensor, VD1943_REG_CFA_SELECTION,
+				  &optical_version, NULL);
+		if (ret)
+			return ret;
+
+		is_rgbnir = ((optical_version & 0x0f) == VD1943_OPTICAL_RGBIR);
+		if ((is_rgbnir && sensor->model == VD1943_MODEL_VD5943) ||
+		    (!is_rgbnir && sensor->model == VD1943_MODEL_VD1943)) {
+			dev_warn(&client->dev,
+				 "Found %s sensor, while %s model is defined in DT",
+				 (is_rgbnir) ? "RGBNir" : "Mono",
+				 (sensor->model == VD1943_MODEL_VD1943) ?
+					 "vd1943" :
+					 "vd5943");
+			return -ENODEV;
+		}
+	}
 
 	return 0;
 }
