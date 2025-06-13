@@ -204,7 +204,7 @@ int dev_err_probe(const struct device *dev, int err, const char *fmt, ...)
 
 /* Exposure settings */
 #define VD1943_EXPOSURE_MARGIN				27
-#define VD1943_EXPOSURE_DEFAULT				840
+#define VD1943_EXPOSURE_DEFAULT				840U
 
 /* Output Interface settings */
 #define VD1943_MAX_CSI_DATA_LANES			4
@@ -763,7 +763,7 @@ static int vd1943_g_volatile_ctrl(struct v4l2_ctrl *ctrl)
 	return ret;
 }
 
-static void vd1943_update_controls(struct vd1943 *sensor)
+static int vd1943_update_controls(struct vd1943 *sensor)
 {
 	const struct v4l2_rect *crop = &sensor->active_crop;
 	unsigned int is_gs = (sensor->shutter_ctrl->val == VD1943_GS_MODE);
@@ -802,18 +802,35 @@ static void vd1943_update_controls(struct vd1943 *sensor)
 	 */
 	unsigned int expo_min = 4;
 	unsigned int expo_max = crop->height + vblank - VD1943_EXPOSURE_MARGIN;
+	int ret;
 
 	/* Update pixel_rate, blankings and exposure controls */
-	__v4l2_ctrl_modify_range(sensor->pixrate_ctrl, virt_pixrate,
-				 virt_pixrate, 1, virt_pixrate);
-	__v4l2_ctrl_modify_range(sensor->hblank_ctrl, hblank_min, hblank, 1,
-				 hblank);
-	__v4l2_ctrl_modify_range(sensor->vblank_ctrl, vblank_min, vblank_max, 1,
-				 vblank);
-	__v4l2_ctrl_s_ctrl(sensor->vblank_ctrl, vblank);
-	__v4l2_ctrl_modify_range(sensor->expo_ctrl, expo_min, expo_max, 1,
-				 VD1943_EXPOSURE_DEFAULT);
-	__v4l2_ctrl_s_ctrl(sensor->expo_ctrl, VD1943_EXPOSURE_DEFAULT);
+	ret = __v4l2_ctrl_modify_range(sensor->pixrate_ctrl, virt_pixrate,
+				       virt_pixrate, 1, virt_pixrate);
+	if (ret)
+		return ret;
+
+	ret = __v4l2_ctrl_modify_range(sensor->hblank_ctrl,
+				       min(hblank_min, hblank), hblank, 1,
+				       hblank);
+	if (ret)
+		return ret;
+
+	ret = __v4l2_ctrl_modify_range(sensor->vblank_ctrl, vblank_min,
+				       vblank_max, 1, vblank);
+	if (ret)
+		return ret;
+
+	ret = __v4l2_ctrl_s_ctrl(sensor->vblank_ctrl, vblank);
+	if (ret)
+		return ret;
+
+	ret = __v4l2_ctrl_modify_range(sensor->expo_ctrl, expo_min, expo_max, 1,
+				       VD1943_EXPOSURE_DEFAULT);
+	if (ret)
+		return ret;
+
+	return __v4l2_ctrl_s_ctrl(sensor->expo_ctrl, VD1943_EXPOSURE_DEFAULT);
 }
 
 static int vd1943_s_ctrl(struct v4l2_ctrl *ctrl)
@@ -827,7 +844,7 @@ static int vd1943_s_ctrl(struct v4l2_ctrl *ctrl)
 	unsigned int gpio_ctrl;
 	unsigned long gpio_ctrl_new;
 	unsigned long io;
-	int ret;
+	int ret = 0;
 
 	if (ctrl->flags & V4L2_CTRL_FLAG_READ_ONLY)
 		return 0;
@@ -837,8 +854,10 @@ static int vd1943_s_ctrl(struct v4l2_ctrl *ctrl)
 	case V4L2_CID_VBLANK:
 		frame_length = sensor->active_crop.height + ctrl->val;
 		expo_max = frame_length - VD1943_EXPOSURE_MARGIN;
-		__v4l2_ctrl_modify_range(sensor->expo_ctrl, 0, expo_max, 1,
-					 VD1943_EXPOSURE_DEFAULT);
+		ret = __v4l2_ctrl_modify_range(sensor->expo_ctrl, 0, expo_max,
+					       1,
+					       min(VD1943_EXPOSURE_DEFAULT,
+						   expo_max));
 		break;
 	case V4L2_CID_SHUTTER_MODE:
 		vd1943_update_controls(sensor);
@@ -846,6 +865,9 @@ static int vd1943_s_ctrl(struct v4l2_ctrl *ctrl)
 	default:
 		break;
 	}
+
+	if (ret)
+		return ret;
 
 	/* Interact with HW only when it is powered ON */
 	if (!pm_runtime_get_if_in_use(&client->dev))
@@ -1467,7 +1489,7 @@ static int vd1943_set_pad_fmt(struct v4l2_subdev *sd,
 		sensor->active_fmt = sd_fmt->format;
 		sensor->active_crop = pad_crop;
 
-		vd1943_update_controls(sensor);
+		ret = vd1943_update_controls(sensor);
 	}
 
 	mutex_unlock(&sensor->lock);
@@ -2115,9 +2137,7 @@ static int vd1943_subdev_init(struct vd1943 *sensor)
 	sensor->active_crop.left = 320;
 	sensor->active_crop.top = 352;
 
-	vd1943_update_controls(sensor);
-
-	return 0;
+	return vd1943_update_controls(sensor);
 
 err_media:
 	media_entity_cleanup(&sensor->sd.entity);
