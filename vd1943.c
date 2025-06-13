@@ -1268,6 +1268,7 @@ unlock:
 		v4l2_ctrl_grab(sensor->hflip_ctrl, enable);
 		v4l2_ctrl_grab(sensor->vflip_ctrl, enable);
 		v4l2_ctrl_grab(sensor->patgen_ctrl, enable);
+		v4l2_ctrl_grab(sensor->hblank_ctrl, enable);
 		v4l2_ctrl_grab(sensor->vblank_ctrl, enable);
 		v4l2_ctrl_grab(sensor->shutter_ctrl, enable);
 		v4l2_ctrl_grab(sensor->pedestal_ctrl, enable);
@@ -1284,6 +1285,7 @@ unlock:
 		__v4l2_ctrl_grab(sensor->hflip_ctrl, enable);
 		__v4l2_ctrl_grab(sensor->vflip_ctrl, enable);
 		__v4l2_ctrl_grab(sensor->patgen_ctrl, enable);
+		__v4l2_ctrl_grab(sensor->hblank_ctrl, enable);
 		__v4l2_ctrl_grab(sensor->vblank_ctrl, enable);
 		__v4l2_ctrl_grab(sensor->shutter_ctrl, enable);
 		__v4l2_ctrl_grab(sensor->pedestal_ctrl, enable);
