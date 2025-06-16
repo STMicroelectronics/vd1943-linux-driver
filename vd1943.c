@@ -423,8 +423,10 @@ struct vd1943 {
 	unsigned long ext_leds_mask;
 	enum vd1943_models model;
 	bool is_fastboot;
+#if KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
 	/* lock to protect all members below */
 	struct mutex lock;
+#endif
 	struct v4l2_ctrl_handler ctrl_handler;
 	struct v4l2_ctrl *pixrate_ctrl;
 	struct v4l2_ctrl *hblank_ctrl;
@@ -442,8 +444,10 @@ struct vd1943 {
 	struct v4l2_ctrl *shutter_ctrl;
 	struct v4l2_ctrl *pedestal_ctrl;
 	bool streaming;
+#if KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
 	struct v4l2_mbus_framefmt active_fmt;
 	struct v4l2_rect active_crop;
+#endif
 };
 
 static inline struct vd1943 *to_vd1943(struct v4l2_subdev *sd)
@@ -715,7 +719,18 @@ static int vd1943_get_temp(struct vd1943 *sensor, int *temp)
 
 static int vd1943_write_sensor_conf(struct vd1943 *sensor, u8 shutter_mode)
 {
+#if KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
 	unsigned int code = sensor->active_fmt.code;
+#elif KERNEL_VERSION(6, 8, 0) > LINUX_VERSION_CODE
+	struct v4l2_subdev_state *state =
+		v4l2_subdev_get_locked_active_state(&sensor->sd);
+	unsigned int code =
+		v4l2_subdev_get_pad_format(&sensor->sd, state, 0)->code;
+#else
+	struct v4l2_subdev_state *state =
+		v4l2_subdev_get_locked_active_state(&sensor->sd);
+	unsigned int code = v4l2_subdev_state_get_format(state, 0)->code;
+#endif
 	unsigned int model = sensor->model;
 	unsigned int i;
 	int ret = 0;
@@ -765,44 +780,68 @@ static int vd1943_g_volatile_ctrl(struct v4l2_ctrl *ctrl)
 
 static int vd1943_update_controls(struct vd1943 *sensor)
 {
-	const struct v4l2_rect *crop = &sensor->active_crop;
-	unsigned int is_gs = (sensor->shutter_ctrl->val == VD1943_GS_MODE);
+#if KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
+#else
+	struct v4l2_subdev_state *state;
+#endif
+	const struct v4l2_rect *crop;
+	const struct v4l2_mbus_framefmt *format;
+	unsigned int is_gs;
+	unsigned int virt_pixrate;
+	unsigned int mipi_linerate_max;
+	unsigned int hblank_min, hblank;
+	unsigned int line_length_min;
+	unsigned int vblank_min, vblank, vblank_max;
+	unsigned int expo_min, expo_max;
+	int ret;
+
+#if KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
+	crop = &sensor->active_crop;
+	format = &sensor->active_fmt;
+#elif KERNEL_VERSION(6, 8, 0) > LINUX_VERSION_CODE
+	state = v4l2_subdev_get_locked_active_state(&sensor->sd);
+	crop = v4l2_subdev_get_pad_crop(&sensor->sd, state, 0);
+	format = v4l2_subdev_get_pad_format(&sensor->sd, state, 0);
+#else
+	state = v4l2_subdev_get_locked_active_state(&sensor->sd);
+	crop = v4l2_subdev_state_get_crop(state, 0);
+	format = v4l2_subdev_state_get_format(state, 0);
+#endif
+
+	is_gs = (sensor->shutter_ctrl->val == VD1943_GS_MODE);
 
 	/* With 2 row of ADC in GS mode, the pixel rate is virtually doubled */
-	unsigned int virt_pixrate = sensor->pixel_clock * (is_gs ? 2 : 1);
+	virt_pixrate = sensor->pixel_clock * (is_gs ? 2 : 1);
 
 	/*
 	 * The pixel rate being doubled, the line length is extended (doubled)
 	 * to avoid any bottleneck on the mipi link.
 	 */
-	unsigned int hblank =
-		(VD1943_LINE_LENGTH_MIN * (is_gs ? 2 : 1)) - crop->width;
+	hblank = (VD1943_LINE_LENGTH_MIN * (is_gs ? 2 : 1)) - crop->width;
 
 	/* Compute the max line rate on the mipi link based on pixel depth */
-	unsigned int mipi_linerate_max =
-		sensor->mipi_bandwidth /
-		(crop->width * vd1943_get_bpp(sensor->active_fmt.code));
+	mipi_linerate_max = sensor->mipi_bandwidth /
+			    (crop->width * vd1943_get_bpp(format->code));
 
 	/* Compute the mins line_length and hblank given the mipi bandwidth */
-	unsigned int line_length_min = virt_pixrate / mipi_linerate_max;
-	unsigned int hblank_min = ((line_length_min < VD1943_LINE_LENGTH_MIN) ?
-					   VD1943_LINE_LENGTH_MIN :
-					   line_length_min) -
-				  crop->width;
+	line_length_min = virt_pixrate / mipi_linerate_max;
+	hblank_min = ((line_length_min < VD1943_LINE_LENGTH_MIN) ?
+			      VD1943_LINE_LENGTH_MIN :
+			      line_length_min) -
+		     crop->width;
 
 	/* Adjust vblank with a target of 30FPS */
-	unsigned int vblank_min = VD1943_VBLANK_MIN;
-	unsigned int vblank = VD1943_FRAME_LENGTH_DEF_30FPS - crop->height;
-	unsigned int vblank_max = 0xffff - crop->height;
+	vblank_min = VD1943_VBLANK_MIN;
+	vblank = VD1943_FRAME_LENGTH_DEF_30FPS - crop->height;
+	vblank_max = 0xffff - crop->height;
 
 	/*
 	 * Exposure limits (expressed in lines) :
 	 * - GS mode : [4   .. FRAME_LENGTH - 27]
 	 * - RS mode : [1.5 .. FRAME_LENGTH - 10]
 	 */
-	unsigned int expo_min = 4;
-	unsigned int expo_max = crop->height + vblank - VD1943_EXPOSURE_MARGIN;
-	int ret;
+	expo_min = 4;
+	expo_max = crop->height + vblank - VD1943_EXPOSURE_MARGIN;
 
 	/* Update pixel_rate, blankings and exposure controls */
 	ret = __v4l2_ctrl_modify_range(sensor->pixrate_ctrl, virt_pixrate,
@@ -838,6 +877,11 @@ static int vd1943_s_ctrl(struct v4l2_ctrl *ctrl)
 	struct v4l2_subdev *sd = ctrl_to_sd(ctrl);
 	struct vd1943 *sensor = to_vd1943(sd);
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
+#if KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
+#else
+	struct v4l2_subdev_state *state;
+#endif
+	const struct v4l2_rect *crop;
 	unsigned int line_length = 0;
 	unsigned int frame_length = 0;
 	unsigned int expo_max;
@@ -846,13 +890,23 @@ static int vd1943_s_ctrl(struct v4l2_ctrl *ctrl)
 	unsigned long io;
 	int ret = 0;
 
+#if KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
+	crop = &sensor->active_crop;
+#elif KERNEL_VERSION(6, 8, 0) > LINUX_VERSION_CODE
+	state = v4l2_subdev_get_locked_active_state(sd);
+	crop = v4l2_subdev_get_pad_crop(sd, state, 0);
+#else
+	state = v4l2_subdev_get_locked_active_state(sd);
+	crop = v4l2_subdev_state_get_crop(state, 0);
+#endif
+
 	if (ctrl->flags & V4L2_CTRL_FLAG_READ_ONLY)
 		return 0;
 
 	/* Update controls state, range, etc. whatever the state of the HW */
 	switch (ctrl->id) {
 	case V4L2_CID_VBLANK:
-		frame_length = sensor->active_crop.height + ctrl->val;
+		frame_length = crop->height + ctrl->val;
 		expo_max = frame_length - VD1943_EXPOSURE_MARGIN;
 		ret = __v4l2_ctrl_modify_range(sensor->expo_ctrl, 0, expo_max,
 					       1,
@@ -887,7 +941,7 @@ static int vd1943_s_ctrl(struct v4l2_ctrl *ctrl)
 				   !ctrl->val, NULL);
 		break;
 	case V4L2_CID_HBLANK:
-		line_length = sensor->active_crop.width + ctrl->val;
+		line_length = crop->width + ctrl->val;
 		ret = vd1943_write(sensor, VD1943_REG_LINE_LENGTH, line_length,
 				   NULL);
 		break;
@@ -1050,8 +1104,10 @@ static int vd1943_init_controls(struct vd1943 *sensor)
 
 	v4l2_ctrl_handler_init(hdl, 25);
 
+#if KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
 	/* we can use our own mutex for the ctrl lock */
 	hdl->lock = &sensor->lock;
+#endif
 
 	/* Horizontal & vertical flips modify bayer code on RGB variant */
 	sensor->hflip_ctrl =
@@ -1164,9 +1220,15 @@ free_ctrls:
  * Videos ops
  */
 
+#if KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
 static int vd1943_stream_on(struct vd1943 *sensor)
+#else
+static int vd1943_stream_on(struct vd1943 *sensor,
+			    struct v4l2_subdev_state *state)
+#endif
 {
-	const struct v4l2_rect *crop = &sensor->active_crop;
+	const struct v4l2_mbus_framefmt *format;
+	const struct v4l2_rect *crop;
 	unsigned int csi_mbps = ((sensor->nb_of_lane == 2) ?
 					 VD1943_LINK_FREQ_DEF_2LANES :
 					 VD1943_LINK_FREQ_DEF_4LANES) * 2;
@@ -1174,6 +1236,17 @@ static int vd1943_stream_on(struct vd1943 *sensor)
 							    VD1943_LANES_NB_4);
 	unsigned int io;
 	int ret = 0;
+
+#if KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
+	format = &sensor->active_fmt;
+	crop = &sensor->active_crop;
+#elif KERNEL_VERSION(6, 8, 0) > LINUX_VERSION_CODE
+	format = v4l2_subdev_get_pad_format(&sensor->sd, state, 0);
+	crop = v4l2_subdev_get_pad_crop(&sensor->sd, state, 0);
+#else
+	format = v4l2_subdev_state_get_format(state, 0);
+	crop = v4l2_subdev_state_get_crop(state, 0);
+#endif
 
 	/* configure output */
 	vd1943_write(sensor, VD1943_REG_LANE_NB_SEL, lane_nb, &ret);
@@ -1190,7 +1263,7 @@ static int vd1943_stream_on(struct vd1943 *sensor)
 	vd1943_write(sensor, VD1943_REG_ROI_WIDTH, crop->width, &ret);
 	vd1943_write(sensor, VD1943_REG_ROI_HEIGHT, crop->height, &ret);
 	vd1943_write(sensor, VD1943_REG_ROI_DT,
-		     vd1943_get_datatype(sensor->active_fmt.code), &ret);
+		     vd1943_get_datatype(format->code), &ret);
 
 	/* configure GPIOS */
 	for (io = 0; io < VD1943_NB_GPIOS; io++)
@@ -1229,9 +1302,17 @@ static int vd1943_s_stream(struct v4l2_subdev *sd, int enable)
 {
 	struct vd1943 *sensor = to_vd1943(sd);
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
+#if KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
+#else
+	struct v4l2_subdev_state *state;
+#endif
 	int ret = 0;
 
+#if KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
 	mutex_lock(&sensor->lock);
+#else
+	state = v4l2_subdev_lock_and_get_active_state(sd);
+#endif
 
 	if (enable) {
 #if KERNEL_VERSION(5, 10, 0) > LINUX_VERSION_CODE
@@ -1245,7 +1326,11 @@ static int vd1943_s_stream(struct v4l2_subdev *sd, int enable)
 		if (ret < 0)
 			goto unlock;
 #endif
+#if KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
 		ret = vd1943_stream_on(sensor);
+#else
+		ret = vd1943_stream_on(sensor, state);
+#endif
 		if (ret) {
 			dev_err(&client->dev, "Failed to start streaming\n");
 			pm_runtime_put_sync(&client->dev);
@@ -1296,7 +1381,11 @@ unlock:
 	}
 
 unlock:
+#if KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
 	mutex_unlock(&sensor->lock);
+#else
+	v4l2_subdev_unlock_state(state);
+#endif
 #endif
 
 	return ret;
@@ -1310,6 +1399,7 @@ static const struct v4l2_subdev_video_ops vd1943_video_ops = {
  * Pad ops
  */
 
+#if KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
 /*
  * Media bus code is dependent of :
  *      - 8bits, 10bits or 12bits output
@@ -1331,6 +1421,7 @@ static u32 vd1943_get_mbus_code(struct vd1943 *sensor, u32 code)
 
 	return vdx941_configs[model][shutter][i].mbus_code;
 }
+#endif
 
 #if KERNEL_VERSION(5, 14, 0) > LINUX_VERSION_CODE
 static int vd1943_enum_mbus_code(struct v4l2_subdev *sd,
@@ -1393,6 +1484,7 @@ static void vd1943_update_img_pad_format(struct vd1943 *sensor,
 	mbus_fmt->xfer_func = V4L2_XFER_FUNC_NONE;
 }
 
+#if KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
 #if KERNEL_VERSION(5, 14, 0) > LINUX_VERSION_CODE
 static int vd1943_get_pad_fmt(struct v4l2_subdev *sd,
 			      struct v4l2_subdev_pad_config *cfg,
@@ -1412,14 +1504,9 @@ static int vd1943_get_pad_fmt(struct v4l2_subdev *sd,
 #if KERNEL_VERSION(5, 14, 0) > LINUX_VERSION_CODE
 		pad_fmt = v4l2_subdev_get_try_format(&sensor->sd, cfg,
 						     sd_fmt->pad);
-#elif KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
+#else
 		pad_fmt = v4l2_subdev_get_try_format(&sensor->sd, sd_state,
 						     sd_fmt->pad);
-#elif KERNEL_VERSION(6, 8, 0) > LINUX_VERSION_CODE
-		pad_fmt = v4l2_subdev_get_pad_format(&sensor->sd, sd_state,
-						     sd_fmt->pad);
-#else
-		pad_fmt = v4l2_subdev_state_get_format(sd_state, sd_fmt->pad);
 #endif
 		/* Image mbus code could change with H/V flips */
 		pad_fmt->code = vd1943_get_mbus_code(sensor, pad_fmt->code);
@@ -1432,6 +1519,7 @@ static int vd1943_get_pad_fmt(struct v4l2_subdev *sd,
 
 	return 0;
 }
+#endif
 
 #if KERNEL_VERSION(5, 14, 0) > LINUX_VERSION_CODE
 static int vd1943_set_pad_fmt(struct v4l2_subdev *sd,
@@ -1452,7 +1540,9 @@ static int vd1943_set_pad_fmt(struct v4l2_subdev *sd,
 	if (sensor->streaming)
 		return -EBUSY;
 
+#if KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
 	mutex_lock(&sensor->lock);
+#endif
 
 	/* Identify the mode that best suits the requested resolution */
 	new_mode = v4l2_find_nearest_size(vd1943_supported_modes,
@@ -1470,31 +1560,40 @@ static int vd1943_set_pad_fmt(struct v4l2_subdev *sd,
 	pad_crop.left = (VD1943_NATIVE_WIDTH - pad_crop.width) / 2;
 	pad_crop.top = (VD1943_NATIVE_HEIGHT - pad_crop.height) / 2;
 
+#if KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
 	if (sd_fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
 #if KERNEL_VERSION(5, 14, 0) > LINUX_VERSION_CODE
 		pad_fmt = v4l2_subdev_get_try_format(sd, cfg, sd_fmt->pad);
-#elif KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
-		pad_fmt = v4l2_subdev_get_try_format(sd, sd_state, sd_fmt->pad);
-#elif KERNEL_VERSION(6, 8, 0) > LINUX_VERSION_CODE
-		pad_fmt = v4l2_subdev_get_pad_format(sd, sd_state, sd_fmt->pad);
 #else
-		pad_fmt = v4l2_subdev_state_get_format(sd_state, 0);
+		pad_fmt = v4l2_subdev_get_try_format(sd, sd_state, sd_fmt->pad);
 #endif
 		*pad_fmt = sd_fmt->format;
-	} else if (sd_fmt->format.width != sensor->active_fmt.width ||
-		   sd_fmt->format.height != sensor->active_fmt.height ||
-		   sd_fmt->format.code != sensor->active_fmt.code) {
-		/*
-		 * This nested 'if' only avoid to reset ctrls while format
-		 * hasn't changed (userspace pb, we shouldn't interfere ?)
-		 */
+	} else {
 		sensor->active_fmt = sd_fmt->format;
 		sensor->active_crop = pad_crop;
-
 		ret = vd1943_update_controls(sensor);
 	}
+#else
+#if KERNEL_VERSION(6, 8, 0) > LINUX_VERSION_CODE
+	pad_fmt = v4l2_subdev_get_pad_format(sd, sd_state, sd_fmt->pad);
+#else
+	pad_fmt = v4l2_subdev_state_get_format(sd_state, sd_fmt->pad);
+#endif
+	*pad_fmt = sd_fmt->format;
 
+#if KERNEL_VERSION(6, 8, 0) > LINUX_VERSION_CODE
+	*v4l2_subdev_get_pad_crop(sd, sd_state, sd_fmt->pad) = pad_crop;
+#else
+	*v4l2_subdev_state_get_crop(sd_state, sd_fmt->pad) = pad_crop;
+#endif
+
+	if (sd_fmt->which == V4L2_SUBDEV_FORMAT_ACTIVE)
+		ret = vd1943_update_controls(sensor);
+#endif
+
+#if KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
 	mutex_unlock(&sensor->lock);
+#endif
 
 	return ret;
 }
@@ -1509,11 +1608,19 @@ static int vd1943_get_selection(struct v4l2_subdev *sd,
 				struct v4l2_subdev_selection *sel)
 #endif
 {
+#if KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
 	struct vd1943 *sensor = to_vd1943(sd);
+#endif
 
 	switch (sel->target) {
 	case V4L2_SEL_TGT_CROP:
+#if KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
 		sel->r = sensor->active_crop;
+#elif KERNEL_VERSION(6, 8, 0) > LINUX_VERSION_CODE
+		sel->r = *v4l2_subdev_get_pad_crop(sd, sd_state, 0);
+#else
+		sel->r = *v4l2_subdev_state_get_crop(sd_state, 0);
+#endif
 		break;
 	case V4L2_SEL_TGT_NATIVE_SIZE:
 	case V4L2_SEL_TGT_CROP_DEFAULT:
@@ -1546,11 +1653,24 @@ static int vd1943_init_state(struct v4l2_subdev *sd,
 	unsigned int def_mbus_code =
 		vdx941_configs[sensor->model][VD1943_GS_MODE][0].mbus_code;
 
-	/* Default resolution mode / raw8 */
+#if KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
 	vd1943_update_img_pad_format(sensor, &vd1943_supported_modes[def_mode],
 				     def_mbus_code, &sensor->active_fmt);
 
 	return 0;
+#else
+	struct v4l2_subdev_format fmt = {
+		.which = V4L2_SUBDEV_FORMAT_TRY,
+		.pad = 0,
+		.format = {
+			.code = def_mbus_code,
+			.width = vd1943_supported_modes[def_mode].width,
+			.height = vd1943_supported_modes[def_mode].height,
+		},
+	};
+
+	return vd1943_set_pad_fmt(sd, sd_state, &fmt);
+#endif
 }
 
 static const struct v4l2_subdev_core_ops vd1943_core_ops = {
@@ -1564,7 +1684,11 @@ static const struct v4l2_subdev_pad_ops vd1943_pad_ops = {
 #endif
 	.enum_mbus_code = vd1943_enum_mbus_code,
 	.enum_frame_size = vd1943_enum_frame_size,
+#if KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
 	.get_fmt = vd1943_get_pad_fmt,
+#else
+	.get_fmt = v4l2_subdev_get_fmt,
+#endif
 	.set_fmt = vd1943_set_pad_fmt,
 	.get_selection = vd1943_get_selection,
 };
@@ -2097,12 +2221,16 @@ static int vd1943_detect(struct vd1943 *sensor)
 static int vd1943_subdev_init(struct vd1943 *sensor)
 {
 	struct i2c_client *client = sensor->i2c_client;
+#if KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
 	unsigned int def_mode = VD1943_DEFAULT_MODE;
 	unsigned int def_mbus_code =
 		vdx941_configs[sensor->model][VD1943_GS_MODE][0].mbus_code;
+#endif
 	int ret;
 
+#if KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
 	mutex_init(&sensor->lock);
+#endif
 
 	/* Init sub device */
 	v4l2_i2c_subdev_init(&sensor->sd, client, &vd1943_subdev_ops);
@@ -2132,14 +2260,29 @@ static int vd1943_subdev_init(struct vd1943 *sensor)
 
 	/* Init vd1943 struct : default resolution + raw8 */
 	sensor->streaming = false;
+#if KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
 	vd1943_update_img_pad_format(sensor, &vd1943_supported_modes[def_mode],
 				     def_mbus_code, &sensor->active_fmt);
 	sensor->active_crop.width = vd1943_supported_modes[def_mode].width;
 	sensor->active_crop.height = vd1943_supported_modes[def_mode].height;
 	sensor->active_crop.left = 320;
 	sensor->active_crop.top = 352;
+#else
+	sensor->sd.state_lock = sensor->ctrl_handler.lock;
+	ret = v4l2_subdev_init_finalize(&sensor->sd);
+	if (ret) {
+		dev_err(&client->dev, "subdev init error: %d", ret);
+		goto err_ctrls;
+	}
+#endif
 
 	return vd1943_update_controls(sensor);
+
+#if KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
+#else
+err_ctrls:
+	v4l2_ctrl_handler_free(sensor->sd.ctrl_handler);
+#endif
 
 err_media:
 	media_entity_cleanup(&sensor->sd.entity);
@@ -2150,7 +2293,11 @@ err_media:
 static void vd1943_subdev_cleanup(struct vd1943 *sensor)
 {
 	v4l2_async_unregister_subdev(&sensor->sd);
+#if KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
 	mutex_destroy(&sensor->lock);
+#else
+	v4l2_subdev_cleanup(&sensor->sd);
+#endif
 	media_entity_cleanup(&sensor->sd.entity);
 	v4l2_ctrl_handler_free(sensor->sd.ctrl_handler);
 }
