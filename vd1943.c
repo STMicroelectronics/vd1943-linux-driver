@@ -61,27 +61,6 @@
 #include <linux/units.h>
 #endif
 
-#if KERNEL_VERSION(5, 9, 0) > LINUX_VERSION_CODE
-int dev_err_probe(const struct device *dev, int err, const char *fmt, ...)
-{
-	struct va_format vaf;
-	va_list args;
-
-	va_start(args, fmt);
-	vaf.fmt = fmt;
-	vaf.va = &args;
-
-	if (err != -EPROBE_DEFER)
-		dev_err(dev, "error %d: %pV", err, &vaf);
-	else
-		dev_dbg(dev, "error %d: %pV", err, &vaf);
-
-	va_end(args);
-
-	return err;
-}
-#endif
-
 #if KERNEL_VERSION(6, 10, 0) > LINUX_VERSION_CODE
 #define MEDIA_BUS_FMT_RGBNIR4X4_1X8			0x3021
 #define MEDIA_BUS_FMT_RGBNIR4X4_1X10			0x3022
@@ -2302,6 +2281,16 @@ static void vd1943_subdev_cleanup(struct vd1943 *sensor)
 	v4l2_ctrl_handler_free(sensor->sd.ctrl_handler);
 }
 
+static int vd1943_err_probe(struct device *dev, int ret, char *msg)
+{
+#if KERNEL_VERSION(5, 9, 0) > LINUX_VERSION_CODE
+	dev_err(dev, "%s", msg);
+	return ret;
+#else
+	return dev_err_probe(dev, ret, msg);
+#endif
+}
+
 static int vd1943_probe(struct i2c_client *client)
 {
 	struct device *dev = &client->dev;
@@ -2316,16 +2305,16 @@ static int vd1943_probe(struct i2c_client *client)
 
 	ret = vd1943_parse_dt(sensor);
 	if (ret)
-		return dev_err_probe(dev, ret, "Failed to parse Device Tree.");
+		return vd1943_err_probe(dev, ret, "Failed to parse Device Tree.");
 
 	/* Get (and check) resources : power regs, ext clock, reset gpio */
 	ret = vd1943_get_regulators(sensor);
 	if (ret)
-		return dev_err_probe(dev, ret, "Failed to get regulators.");
+		return vd1943_err_probe(dev, ret, "Failed to get regulators.");
 
 	sensor->xclk = devm_clk_get(dev, NULL);
 	if (IS_ERR(sensor->xclk))
-		return dev_err_probe(dev, PTR_ERR(sensor->xclk),
+		return vd1943_err_probe(dev, PTR_ERR(sensor->xclk),
 				     "Failed to get xclk.");
 	sensor->xclk_freq = clk_get_rate(sensor->xclk);
 	ret = vd1943_prepare_clock_tree(sensor);
@@ -2335,7 +2324,7 @@ static int vd1943_probe(struct i2c_client *client)
 	sensor->reset_gpio =
 		devm_gpiod_get_optional(dev, "reset", GPIOD_OUT_HIGH);
 	if (IS_ERR(sensor->reset_gpio))
-		return dev_err_probe(dev, PTR_ERR(sensor->reset_gpio),
+		return vd1943_err_probe(dev, PTR_ERR(sensor->reset_gpio),
 				     "Failed to get reset gpio.");
 
 #if KERNEL_VERSION(6, 8, 0) > LINUX_VERSION_CODE
@@ -2344,13 +2333,13 @@ static int vd1943_probe(struct i2c_client *client)
 	sensor->regmap = devm_cci_regmap_init_i2c(client, 16);
 #endif
 	if (IS_ERR(sensor->regmap))
-		return dev_err_probe(dev, PTR_ERR(sensor->regmap),
+		return vd1943_err_probe(dev, PTR_ERR(sensor->regmap),
 				     "Failed to init regmap.");
 
 	/* Power ON */
 	ret = vd1943_power_on(sensor);
 	if (ret)
-		return dev_err_probe(dev, ret, "Sensor power on failed.");
+		return vd1943_err_probe(dev, ret, "Sensor power on failed.");
 
 	/* Enable PM runtime with autosuspend (sensor being ON, set active) */
 	pm_runtime_set_active(dev);
