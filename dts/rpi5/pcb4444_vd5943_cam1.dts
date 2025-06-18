@@ -64,11 +64,11 @@
 				port {
 					vd5943_ep: endpoint {
 						clock-lanes = <0>;
-						data-lanes = <1 2>;
+						data-lanes = <1 2 3 4>;
 						remote-endpoint = <&csi_ep>;
 						clock-noncontinuous;
-						link-frequencies = /bits/ 64 <750000000>;
-						lane-polarities = <1 1 1>;
+						link-frequencies = /bits/ 64 <650000000>;
+						lane-polarities = <1 1 1 1 1>;
 					};
 				};
 			};
@@ -85,7 +85,7 @@
 				csi_ep: endpoint {
 					remote-endpoint = <&vd5943_ep>;
 					clock-lanes = <0>;
-					data-lanes = <1 2>;
+					data-lanes = <1 2 3 4>;
 					clock-noncontinuous;
 				};
 			};
