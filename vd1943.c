@@ -177,9 +177,10 @@
 #define VD1943_RS_MODE					1
 
 /* Line length and Frame length (settings are for standard 10bits ADC mode) */
-#define VD1943_LINE_LENGTH_MIN				3372
-#define VD1943_FRAME_LENGTH_DEF_30FPS			3707
-#define VD1943_VBLANK_MIN				240
+#define VD1943_LINE_LENGTH_MIN				3375
+#define VD1943_VBLANK_MIN				238U
+#define VD1943_FRAME_LENGTH_MAX				0xffff
+#define VD1943_DEFAULT_FPS30				30
 
 /* Exposure settings */
 #define VD1943_EXPOSURE_MARGIN				27
@@ -392,9 +393,9 @@ struct vd1943 {
 	struct clk *xclk;
 	struct regmap *regmap;
 	u32 xclk_freq;
-	u32 pixel_clock;
+	u32 pixel_rate;
 	u8 nb_of_lane;
-	u32 mipi_bandwidth;
+	u64 mipi_bandwidth;
 	u8 oif_lane_phy_map;
 	u8 oif_lane_phy_swap;
 	u32 gpios[VD1943_NB_GPIOS];
@@ -407,7 +408,7 @@ struct vd1943 {
 	struct mutex lock;
 #endif
 	struct v4l2_ctrl_handler ctrl_handler;
-	struct v4l2_ctrl *pixrate_ctrl;
+	struct v4l2_ctrl *vt_pixrate_ctrl;
 	struct v4l2_ctrl *hblank_ctrl;
 	struct v4l2_ctrl *vblank_ctrl;
 	struct {
@@ -765,11 +766,14 @@ static int vd1943_update_controls(struct vd1943 *sensor)
 #endif
 	const struct v4l2_rect *crop;
 	const struct v4l2_mbus_framefmt *format;
-	unsigned int is_gs;
-	unsigned int virt_pixrate;
-	unsigned int mipi_linerate_max;
-	unsigned int hblank_min, hblank;
-	unsigned int line_length_min;
+	u8 bpp;
+	u32 vt_pixelrate;
+	u32 mipi_pixelrate;
+	u32 mipi_transition_cst_in_px;
+	u32 mipi_interpacket_delay_in_px;
+	u64 mipi_virtual_linelength = 0;
+	u32 linelength;
+	unsigned int hblank_min;
 	unsigned int vblank_min, vblank, vblank_max;
 	unsigned int expo_min, expo_max;
 	int ret;
@@ -787,32 +791,39 @@ static int vd1943_update_controls(struct vd1943 *sensor)
 	format = v4l2_subdev_state_get_format(state, 0);
 #endif
 
-	is_gs = (sensor->shutter_ctrl->val == VD1943_GS_MODE);
+	/* With 2 rows of ADC used in GS mode, the VT pixel rate is doubled */
+	vt_pixelrate = sensor->pixel_rate;
+	if (sensor->shutter_ctrl->val == VD1943_GS_MODE)
+		vt_pixelrate = vt_pixelrate * 2;
 
-	/* With 2 row of ADC in GS mode, the pixel rate is virtually doubled */
-	virt_pixrate = sensor->pixel_clock * (is_gs ? 2 : 1);
+	/* Compute the max pixelrate on the mipi link based on pixel depth */
+	bpp = vd1943_get_bpp(format->code);
+	mipi_pixelrate = sensor->mipi_bandwidth / bpp;
 
-	/*
-	 * The pixel rate being doubled, the line length is extended (doubled)
-	 * to avoid any bottleneck on the mipi link.
-	 */
-	hblank = (VD1943_LINE_LENGTH_MIN * (is_gs ? 2 : 1)) - crop->width;
-
-	/* Compute the max line rate on the mipi link based on pixel depth */
-	mipi_linerate_max = sensor->mipi_bandwidth /
-			    (crop->width * vd1943_get_bpp(format->code));
-
-	/* Compute the mins line_length and hblank given the mipi bandwidth */
-	line_length_min = virt_pixrate / mipi_linerate_max;
-	hblank_min = ((line_length_min < VD1943_LINE_LENGTH_MIN) ?
-			      VD1943_LINE_LENGTH_MIN :
-			      line_length_min) -
-		     crop->width;
+	/* Compute the mins linelength/hblank given the mipi bandwidth */
+	if (mipi_pixelrate < vt_pixelrate) {
+		/*
+		 * Compute a virtual (mipi-equivalent) linelength that could fit
+		 * with MIPI limitation (MIPI link being the bottleneck here).
+		 */
+		mipi_transition_cst_in_px = mipi_pixelrate / MEGA / 4;
+		mipi_interpacket_delay_in_px =
+			30 * 8 * sensor->nb_of_lane / bpp;
+		mipi_virtual_linelength = mipi_transition_cst_in_px +
+					  crop->width +
+					  mipi_interpacket_delay_in_px;
+		mipi_virtual_linelength =
+			mipi_virtual_linelength * vt_pixelrate / mipi_pixelrate;
+	}
+	linelength = max(VD1943_LINE_LENGTH_MIN, (int)mipi_virtual_linelength);
+	hblank_min = linelength - crop->width;
 
 	/* Adjust vblank with a target of 30FPS */
 	vblank_min = VD1943_VBLANK_MIN;
-	vblank = VD1943_FRAME_LENGTH_DEF_30FPS - crop->height;
-	vblank_max = 0xffff - crop->height;
+	vblank = vt_pixelrate / (VD1943_DEFAULT_FPS30 * linelength) -
+		 crop->height;
+	vblank = max(VD1943_VBLANK_MIN, vblank);
+	vblank_max = VD1943_FRAME_LENGTH_MAX - crop->height;
 
 	/*
 	 * Exposure limits (expressed in lines) :
@@ -823,14 +834,13 @@ static int vd1943_update_controls(struct vd1943 *sensor)
 	expo_max = crop->height + vblank - VD1943_EXPOSURE_MARGIN;
 
 	/* Update pixel_rate, blankings and exposure controls */
-	ret = __v4l2_ctrl_modify_range(sensor->pixrate_ctrl, virt_pixrate,
-				       virt_pixrate, 1, virt_pixrate);
+	ret = __v4l2_ctrl_modify_range(sensor->vt_pixrate_ctrl, vt_pixelrate,
+				       vt_pixelrate, 1, vt_pixelrate);
 	if (ret)
 		return ret;
 
-	ret = __v4l2_ctrl_modify_range(sensor->hblank_ctrl,
-				       min(hblank_min, hblank), hblank, 1,
-				       hblank);
+	ret = __v4l2_ctrl_modify_range(sensor->hblank_ctrl, hblank_min,
+				       hblank_min, 1, hblank_min);
 	if (ret)
 		return ret;
 
@@ -861,6 +871,7 @@ static int vd1943_s_ctrl(struct v4l2_ctrl *ctrl)
 	struct v4l2_subdev_state *state;
 #endif
 	const struct v4l2_rect *crop;
+	const struct v4l2_mbus_framefmt *format;
 	unsigned int line_length = 0;
 	unsigned int frame_length = 0;
 	unsigned int expo_max;
@@ -871,12 +882,15 @@ static int vd1943_s_ctrl(struct v4l2_ctrl *ctrl)
 
 #if KERNEL_VERSION(5, 19, 0) > LINUX_VERSION_CODE
 	crop = &sensor->active_crop;
+	format = &sensor->active_fmt;
 #elif KERNEL_VERSION(6, 8, 0) > LINUX_VERSION_CODE
-	state = v4l2_subdev_get_locked_active_state(sd);
-	crop = v4l2_subdev_get_pad_crop(sd, state, 0);
+	state = v4l2_subdev_get_locked_active_state(&sensor->sd);
+	crop = v4l2_subdev_get_pad_crop(&sensor->sd, state, 0);
+	format = v4l2_subdev_get_pad_format(&sensor->sd, state, 0);
 #else
-	state = v4l2_subdev_get_locked_active_state(sd);
+	state = v4l2_subdev_get_locked_active_state(&sensor->sd);
 	crop = v4l2_subdev_state_get_crop(state, 0);
+	format = v4l2_subdev_state_get_format(state, 0);
 #endif
 
 	if (ctrl->flags & V4L2_CTRL_FLAG_READ_ONLY)
@@ -886,6 +900,8 @@ static int vd1943_s_ctrl(struct v4l2_ctrl *ctrl)
 	switch (ctrl->id) {
 	case V4L2_CID_VBLANK:
 		frame_length = crop->height + ctrl->val;
+		if (sensor->shutter_ctrl->val == VD1943_GS_MODE)
+			frame_length = frame_length / 2;
 		expo_max = frame_length - VD1943_EXPOSURE_MARGIN;
 		ret = __v4l2_ctrl_modify_range(sensor->expo_ctrl, 0, expo_max,
 					       1,
@@ -893,7 +909,13 @@ static int vd1943_s_ctrl(struct v4l2_ctrl *ctrl)
 						   expo_max));
 		break;
 	case V4L2_CID_SHUTTER_MODE:
-		vd1943_update_controls(sensor);
+		/*
+		 * Because __v4l2_ctrl_handler_setup() could trigger unnecessary
+		 * vd1943_update_controls() call, ensure that the shutter mode
+		 * really change before going further.
+		 */
+		if (ctrl->val != ctrl->cur.val)
+			ret = vd1943_update_controls(sensor);
 		break;
 	default:
 		break;
@@ -914,15 +936,13 @@ static int vd1943_s_ctrl(struct v4l2_ctrl *ctrl)
 				   NULL);
 		break;
 	case V4L2_CID_TEST_PATTERN:
-		ret = vd1943_write(sensor, VD1943_REG_PATGEN_CTRL, ctrl->val,
-				   NULL);
-		ret = vd1943_write(sensor, VD1943_REG_DARKCAL_ENABLE,
-				   !ctrl->val, NULL);
+		vd1943_write(sensor, VD1943_REG_PATGEN_CTRL, ctrl->val, &ret);
+		vd1943_write(sensor, VD1943_REG_DARKCAL_ENABLE, !ctrl->val,
+			     &ret);
 		break;
 	case V4L2_CID_HBLANK:
 		line_length = crop->width + ctrl->val;
-		ret = vd1943_write(sensor, VD1943_REG_LINE_LENGTH, line_length,
-				   NULL);
+		vd1943_write(sensor, VD1943_REG_LINE_LENGTH, line_length, &ret);
 		break;
 	case V4L2_CID_VBLANK:
 		ret = vd1943_write(sensor, VD1943_REG_FRAME_LENGTH,
@@ -1112,12 +1132,16 @@ static int vd1943_init_controls(struct vd1943 *sensor)
 	if (ctrl)
 		ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 
-	sensor->pixrate_ctrl = v4l2_ctrl_new_std(hdl, ops, V4L2_CID_PIXEL_RATE,
-						 sensor->pixel_clock,
-						 sensor->pixel_clock, 1,
-						 sensor->pixel_clock);
-	if (sensor->pixrate_ctrl)
-		sensor->pixrate_ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+	/*
+	 * Pixelrate may change depending of selected Shutter Mode, in GS mode
+	 * PixelRate can be twice faster
+	 */
+	sensor->vt_pixrate_ctrl =
+		v4l2_ctrl_new_std(hdl, ops, V4L2_CID_PIXEL_RATE,
+				  sensor->pixel_rate, sensor->pixel_rate, 1,
+				  sensor->pixel_rate);
+	if (sensor->vt_pixrate_ctrl)
+		sensor->vt_pixrate_ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 
 	/*
 	 * Analog gain [1, 4] is computed with the following logic :
@@ -2133,8 +2157,8 @@ static int vd1943_prepare_clock_tree(struct vd1943 *sensor)
 		pll_clk = ndiv * 2 * sensor->xclk_freq;
 	}
 
-	/* vd1943 is designed to run with a virtual pixel clock at 375 Mhz. */
-	sensor->pixel_clock = pll_clk / 4;
+	/* vd1943 is designed to run with a pixel rate at 375 Mhz. */
+	sensor->pixel_rate = pll_clk / 4;
 
 	return 0;
 }
