@@ -229,12 +229,13 @@ struct vd1943_mode {
 /**
  * DOC: Supported Modes
  *
- * The vd1943/vd5943 driver supports 6 modes described below :
+ * The vd1943/vd5943 driver supports 7 modes described below :
  *
  * ======= ======== ====================
  *  Width   Height   Comment
  * ======= ======== ====================
  *   2560     1984   Native resolution
+ *   2560     1920   QHD
  *   2560     1600
  *   2560     1440
  *   1920     1080   Default resolution
@@ -254,6 +255,10 @@ static const struct vd1943_mode vd1943_supported_modes[] = {
 	{
 		.width = VD1943_NATIVE_WIDTH,
 		.height = VD1943_NATIVE_HEIGHT,
+	},
+	{
+		.width = VD1943_NATIVE_WIDTH,
+		.height = 1920,
 	},
 	{
 		.width = VD1943_NATIVE_WIDTH,
