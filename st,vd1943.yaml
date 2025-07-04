@@ -84,7 +84,7 @@ properties:
             minItems: 1
             maxItems: 1
             items:
-              enum: [650000000, 750000000]
+              enum: [375000000, 500000000, 650000000,	750000000]
 
           lane-polarities:
             minItems: 1

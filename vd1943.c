@@ -30,6 +30,54 @@
 #include <linux/unaligned.h>
 #endif
 
+#if KERNEL_VERSION(6, 9, 0) > LINUX_VERSION_CODE
+int vd1943_link_freq_to_bitmap(struct device *dev, const u64 *fw_link_freqs,
+			       unsigned int num_of_fw_link_freqs,
+			       const s64 *driver_link_freqs,
+			       unsigned int num_of_driver_link_freqs,
+			       unsigned long *bitmap)
+{
+	unsigned int i;
+
+	*bitmap = 0;
+
+	if (!num_of_fw_link_freqs) {
+		dev_err(dev, "no link frequencies in firmware\n");
+		return -ENODATA;
+	}
+
+	for (i = 0; i < num_of_fw_link_freqs; i++) {
+		unsigned int j;
+
+		for (j = 0; j < num_of_driver_link_freqs; j++) {
+			if (fw_link_freqs[i] != driver_link_freqs[j])
+				continue;
+
+			dev_dbg(dev, "enabling link frequency %lld Hz\n",
+				driver_link_freqs[j]);
+			*bitmap |= BIT(j);
+			break;
+		}
+	}
+
+	if (!*bitmap) {
+		dev_err(dev, "no matching link frequencies found\n");
+
+		dev_dbg(dev, "specified in firmware:\n");
+		for (i = 0; i < num_of_fw_link_freqs; i++)
+			dev_dbg(dev, "\t%llu Hz\n", fw_link_freqs[i]);
+
+		dev_dbg(dev, "driver supported:\n");
+		for (i = 0; i < num_of_driver_link_freqs; i++)
+			dev_dbg(dev, "\t%lld Hz\n", driver_link_freqs[i]);
+
+		return -ENOENT;
+	}
+
+	return 0;
+}
+#endif
+
 #if KERNEL_VERSION(6, 8, 0) > LINUX_VERSION_CODE
 /*
  * Warning : CCI_REGxy_LE definitions doesn't fit exactly with v4l2-cci.h .
@@ -188,8 +236,6 @@
 
 /* Output Interface settings */
 #define VD1943_MAX_CSI_DATA_LANES			4
-#define VD1943_LINK_FREQ_DEF_2LANES			750000000UL
-#define VD1943_LINK_FREQ_DEF_4LANES			650000000UL
 
 /* GPIOs */
 #define VD1943_NB_GPIOS					4
@@ -398,6 +444,7 @@ struct vd1943 {
 	struct clk *xclk;
 	struct regmap *regmap;
 	u32 xclk_freq;
+	unsigned long link_freq_bitmap;
 	u32 pixel_rate;
 	u8 nb_of_lane;
 	u64 mipi_bandwidth;
@@ -619,9 +666,8 @@ static const char *const vd1943_tp_menu[] = { "Disabled", "Dgrey" };
 static const char *const vd1943_shutter_menu[] = { "Global Shutter",
 						   "Rolling Shutter" };
 
-static const s64 vd1943_link_freq_2lanes[] = { VD1943_LINK_FREQ_DEF_2LANES };
-
-static const s64 vd1943_link_freq_4lanes[] = { VD1943_LINK_FREQ_DEF_4LANES };
+static const s64 vd1943_link_freq[] = { 375000000UL, 500000000UL, 650000000UL,
+					750000000UL };
 
 static u8 vd1943_get_datatype(__u32 code)
 {
@@ -1130,10 +1176,9 @@ static int vd1943_init_controls(struct vd1943 *sensor)
 					     0, vd1943_tp_menu);
 
 	ctrl = v4l2_ctrl_new_int_menu(hdl, ops, V4L2_CID_LINK_FREQ,
-				      ARRAY_SIZE(vd1943_link_freq_2lanes) - 1,
-				      0, (sensor->nb_of_lane == 2) ?
-					      vd1943_link_freq_2lanes :
-					      vd1943_link_freq_4lanes);
+				      __fls(sensor->link_freq_bitmap),
+				      __ffs(sensor->link_freq_bitmap),
+				      vd1943_link_freq);
 	if (ctrl)
 		ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 
@@ -1237,9 +1282,8 @@ static int vd1943_stream_on(struct vd1943 *sensor,
 {
 	const struct v4l2_mbus_framefmt *format;
 	const struct v4l2_rect *crop;
-	unsigned int csi_mbps = ((sensor->nb_of_lane == 2) ?
-					 VD1943_LINK_FREQ_DEF_2LANES :
-					 VD1943_LINK_FREQ_DEF_4LANES) * 2;
+	unsigned int csi_mbps =
+		vd1943_link_freq[__ffs(sensor->link_freq_bitmap)] * 2;
 	unsigned int lane_nb = ((sensor->nb_of_lane == 2) ? VD1943_LANES_NB_2 :
 							    VD1943_LANES_NB_4);
 	unsigned int io;
@@ -1934,7 +1978,6 @@ static int vd1943_check_csi_conf(struct vd1943 *sensor,
 #endif
 	u32 phy_data_lanes[VD1943_MAX_CSI_DATA_LANES] = { ~0, ~0, ~0, ~0 };
 	u8 n_lanes;
-	u64 frequency;
 	int p, l;
 	int ret = 0;
 
@@ -1989,26 +2032,25 @@ static int vd1943_check_csi_conf(struct vd1943 *sensor,
 				    (ep.bus.mipi_csi2.lane_polarities[0] << 4);
 
 	/* Check link frequency */
-	if (!ep.nr_of_link_frequencies) {
-		dev_err(&client->dev, "link-frequency not found in DT\n");
-		ret = -EINVAL;
+#if KERNEL_VERSION(6, 9, 0) > LINUX_VERSION_CODE
+	ret = vd1943_link_freq_to_bitmap(&client->dev, ep.link_frequencies,
+					 ep.nr_of_link_frequencies,
+					 vd1943_link_freq,
+					 ARRAY_SIZE(vd1943_link_freq),
+					 &sensor->link_freq_bitmap);
+#else
+	ret = v4l2_link_freq_to_bitmap(&client->dev, ep.link_frequencies,
+				       ep.nr_of_link_frequencies,
+				       vd1943_link_freq,
+				       ARRAY_SIZE(vd1943_link_freq),
+				       &sensor->link_freq_bitmap);
+#endif
+	if (ret)
 		goto done;
-	}
-	frequency = (n_lanes == 2) ? VD1943_LINK_FREQ_DEF_2LANES :
-				     VD1943_LINK_FREQ_DEF_4LANES;
-	if (ep.nr_of_link_frequencies != 1 ||
-	    ep.link_frequencies[0] != frequency) {
-		dev_err(&client->dev, "Link frequency not supported: %lld\n",
-			ep.link_frequencies[0]);
-		ret = -EINVAL;
-		goto done;
-	}
 
 	/* Compute MIPI bandwidth */
-	sensor->mipi_bandwidth = ((n_lanes == 2) ?
-					  VD1943_LINK_FREQ_DEF_2LANES :
-					  VD1943_LINK_FREQ_DEF_4LANES) *
-				 2 * n_lanes;
+	sensor->mipi_bandwidth =
+		vd1943_link_freq[__ffs(sensor->link_freq_bitmap)] * 2 * n_lanes;
 
 done:
 #if KERNEL_VERSION(4, 20, 0) > LINUX_VERSION_CODE
