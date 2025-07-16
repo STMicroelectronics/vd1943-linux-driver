@@ -1078,12 +1078,17 @@ static const struct v4l2_ctrl_config vd1943_temp_ctrl = {
  * DOC: Dark Calibration Pedestal
  *
  * The device embeds an automatic dark calibration mechanism.
- * This controls allows to set the dark calibration target.
+ * This controls allows to set the dark calibration target: the value is
+ * directly applied to the corresponding register.
+ *
+ * Additionnal computation could be applied on this value by the sensor:
+ * for example, in global shutter mode, the value is divided by four before
+ * being applied on frames.
  *
  * :id:     ``V4L2_CID_DARKCAL_PEDESTAL``
  * :type:   ``V4L2_CTRL_TYPE_INTEGER``
  * :min:    0
- * :max:    63
+ * :max:    256
  * :def:    32
  *
  */
@@ -1093,7 +1098,7 @@ static const struct v4l2_ctrl_config vd1943_darkcal_pedestal_ctrl = {
 	.name = "Dark Calibration Pedestal",
 	.type = V4L2_CTRL_TYPE_INTEGER,
 	.min = 0,
-	.max = 63,
+	.max = 256,
 	.step = 1,
 	.def = 0x20,
 };
