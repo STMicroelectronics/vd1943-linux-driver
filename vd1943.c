@@ -2381,7 +2381,8 @@ static int vd1943_probe(struct i2c_client *client)
 
 	ret = vd1943_parse_dt(sensor);
 	if (ret)
-		return vd1943_err_probe(dev, ret, "Failed to parse Device Tree.");
+		return vd1943_err_probe(dev, ret,
+					"Failed to parse Device Tree.");
 
 	/* Get (and check) resources : power regs, ext clock, reset gpio */
 	ret = vd1943_get_regulators(sensor);
@@ -2391,7 +2392,7 @@ static int vd1943_probe(struct i2c_client *client)
 	sensor->xclk = devm_clk_get(dev, NULL);
 	if (IS_ERR(sensor->xclk))
 		return vd1943_err_probe(dev, PTR_ERR(sensor->xclk),
-				     "Failed to get xclk.");
+					"Failed to get xclk.");
 	sensor->xclk_freq = clk_get_rate(sensor->xclk);
 	ret = vd1943_prepare_clock_tree(sensor);
 	if (ret)
@@ -2401,7 +2402,7 @@ static int vd1943_probe(struct i2c_client *client)
 		devm_gpiod_get_optional(dev, "reset", GPIOD_OUT_HIGH);
 	if (IS_ERR(sensor->reset_gpio))
 		return vd1943_err_probe(dev, PTR_ERR(sensor->reset_gpio),
-				     "Failed to get reset gpio.");
+					"Failed to get reset gpio.");
 
 #if KERNEL_VERSION(6, 8, 0) > LINUX_VERSION_CODE
 	sensor->regmap = devm_regmap_init_i2c(client, &vd1943_regmap_config);
@@ -2410,7 +2411,7 @@ static int vd1943_probe(struct i2c_client *client)
 #endif
 	if (IS_ERR(sensor->regmap))
 		return vd1943_err_probe(dev, PTR_ERR(sensor->regmap),
-				     "Failed to init regmap.");
+					"Failed to init regmap.");
 
 	/* Power ON */
 	ret = vd1943_power_on(sensor);
