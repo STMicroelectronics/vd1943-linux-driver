@@ -44,9 +44,9 @@
 			#size-cells = <0>;
 			status = "okay";
 
-			vd1941: vd1941@10 {
+			vd5943: vd5943@10 {
 				status = "ok";
-				compatible = "st,vd1941";
+				compatible = "st,vd5943";
 				reg = <0x10>;
 
 				clocks = <&camera_clk_25M>;
@@ -62,7 +62,7 @@
 				rotation = <0>;
 
 				port {
-					vd1941_ep: endpoint {
+					vd5943_ep: endpoint {
 						clock-lanes = <0>;
 						data-lanes = <1 2>;
 						remote-endpoint = <&csi1_ep>;
@@ -77,12 +77,13 @@
 
 	fragment@2 {
 		target = <&csi1>;
-		__overlay__ {
+		csi: __overlay__ {
 			status = "okay";
+			brcm,media-controller;
 
 			port {
 				csi1_ep: endpoint {
-					remote-endpoint = <&vd1941_ep>;
+					remote-endpoint = <&vd5943_ep>;
 					clock-lanes = <0>;
 					data-lanes = <1 2>;
 					clock-noncontinuous;
@@ -115,8 +116,9 @@
 	fragment@6 {
 		target-path="/__overrides__";
 		__overlay__ {
-			cam0-pwdn-ctrl = <&vd1941>,"reset-gpios:0";
-			cam0-pwdn      = <&vd1941>,"reset-gpios:4";
+			cam0-pwdn-ctrl = <&vd5943>,"reset-gpios:0";
+			cam0-pwdn      = <&vd5943>,"reset-gpios:4";
+			media-controller = <&csi>,"brcm,media-controller?";
 		};
 	};
 };

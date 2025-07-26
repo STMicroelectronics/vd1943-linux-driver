@@ -8,27 +8,27 @@
 	fragment@0 {
 		target-path="/";
 		__overlay__ {
-			camera_clk2_25M: camera_clk2_25M {
+			camera_clk_25M: camera_clk_25M {
 				#clock-cells = <0>;
 				compatible = "fixed-clock";
 				clock-frequency = <25000000>;
 			};
 
-			v1v2b: v1v2b {
+			v1v2: v1v2 {
 				compatible = "regulator-fixed";
 				regulator-name = "fixed-supply-1v2";
 				regulator-min-microvolt = <1200000>;
 				regulator-max-microvolt = <1200000>;
 			};
 
-			v1v8b: v1v8b {
+			v1v8: v1v8 {
 				compatible = "regulator-fixed";
 				regulator-name = "fixed-supply-1v8";
 				regulator-min-microvolt = <1800000>;
 				regulator-max-microvolt = <1800000>;
 			};
 
-			v2v8b: v2v8b {
+			v2v8: v2v8 {
 				compatible = "regulator-fixed";
 				regulator-name = "fixed-supply-2v8";
 				regulator-min-microvolt = <2800000>;
@@ -38,37 +38,38 @@
 	};
 
 	fragment@1 {
-		target = <&i2c_csi_dsi1>;
+		target = <&i2c_csi_dsi0>;
 		__overlay__ {
 			#address-cells = <1>;
 			#size-cells = <0>;
 			status = "okay";
 
-			vd5941: vd5941@10 {
+			vd1943: vd1943@10 {
 				status = "ok";
-				compatible = "st,vd5941";
+				compatible = "st,vd1943";
 				reg = <0x10>;
 
-				clocks = <&camera_clk2_25M>;
+				clocks = <&camera_clk_25M>;
 				clock-names = "xclk";
 
-				vcore-supply = <&v1v2b>;
-				vddio-supply = <&v1v8b>;
-				vana-supply = <&v2v8b>;
+				vcore-supply = <&v1v2>;
+				vddio-supply = <&v1v8>;
+				vana-supply = <&v2v8>;
 
 				reset-gpios = <&gpio 5 1>;
+				st,leds = <2>;
 
 				orientation = <2>;
 				rotation = <0>;
 
 				port {
-					vd5941_ep: endpoint {
+					vd1943_ep: endpoint {
 						clock-lanes = <0>;
-						data-lanes = <1 2>;
+						data-lanes = <1 2 3 4>;
 						remote-endpoint = <&csi_ep>;
 						clock-noncontinuous;
-						link-frequencies = /bits/ 64 <750000000>;
-						lane-polarities = <1 1 1>;
+						link-frequencies = /bits/ 64 <500000000>;
+						lane-polarities = <1 1 1 1 1>;
 					};
 				};
 			};
@@ -76,16 +77,16 @@
 	};
 
 	fragment@2 {
-		target = <&csi1>;
+		target = <&csi0>;
 		csi: __overlay__ {
 			status = "okay";
 			brcm,media-controller;
 
 			port {
 				csi_ep: endpoint {
-					remote-endpoint = <&vd5941_ep>;
+					remote-endpoint = <&vd1943_ep>;
 					clock-lanes = <0>;
-					data-lanes = <1 2>;
+					data-lanes = <1 2 3 4>;
 					clock-noncontinuous;
 				};
 			};
@@ -93,7 +94,7 @@
 	};
 
 	fragment@3 {
-		target = <&cam1_reg>;
+		target = <&cam0_reg>;
 		__overlay__ {
 			status = "disable";
 		};
@@ -102,9 +103,9 @@
 	fragment@4 {
 		target-path="/__overrides__";
 		__overlay__ {
-			cam1-pwdn-ctrl = <&vd5941>,"reset-gpios:0";
-			cam1-pwdn      = <&vd5941>,"reset-gpios:4";
-			media-controller = <&csi1>,"brcm,media-controller?";
+			cam0-pwdn-ctrl = <&vd1943>,"reset-gpios:0";
+			cam0-pwdn      = <&vd1943>,"reset-gpios:4";
+			media-controller = <&csi0>,"brcm,media-controller?";
 		};
 	};
 };

@@ -1,8 +1,23 @@
 # Changelog
 
+## [0.3.0] - 2025-07-26
+- devicetree: rpi5: reduce mipi freq to improve user experience
+- Allows larger value for Dark Calibration Pedestal control
+- Relax link-frequencies constraints
+- Add 2560x1920 QHD Resolution
+- Timings rework: Enable correct GS/RS blankings
+- devicetree: rpi5: pcb4444: add a slave mode example
+- devicetree: rpi5: pcb4444: use 4 CSI data lanes
+- Prevent dev_err_probe() multiple declarations
+- Use subdev active state
+- Hblank ctrl should be grabbed while streaming
+- vd5943 (Mono): Revert Fmw Patch to v31.81
+- Add Maneki Cut 1.4 support
+- Rename vd1941 to vd1943
+
 ## [0.2.0] - 2025-04-03
 - Add compatibility with kernels up to 6.12
-- devicetree: change label names in cam1 overlays to allow dual cam
+- devicetree: rpi5: change label names in cam1 overlays to allow dual cam
 - Improve exposure settings
 - Proper implementation of GS and RS timing
 

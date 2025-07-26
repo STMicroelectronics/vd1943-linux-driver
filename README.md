@@ -1,4 +1,4 @@
-# ST-VD1941 Linux driver
+# ST-VD1943 Linux driver
 
 ## Installation
 
@@ -13,7 +13,7 @@ make
 Place it in the kernel modules folder.
 
 ```
-sudo cp vd1941.ko /lib/modules/$(uname -r)
+sudo cp vd1943.ko /lib/modules/$(uname -r)
 ```
 
 Resolve modules dependencies.

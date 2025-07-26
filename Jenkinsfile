@@ -13,6 +13,8 @@ pipeline {
 	stages {
 		stage('Prepare') {
 			steps {
+				/* Increase apt lock file timeout not to fail directly if another job is running apt too */
+				sh 'echo "DPkg::Lock::Timeout \"60\";" | sudo tee /etc/apt/apt.conf.d/99timeout'
 				/*
 				 * Checkout in a subfolder, as debian packaging
 				 * tools require to output on '..'.
@@ -59,8 +61,8 @@ pipeline {
 						spec: '''{
 							"files": [
 								{
-									"pattern": "vd1941*.deb",
-									"target": "imgswlinux-debian-local/pool/vd1941-dkms/stable/",
+									"pattern": "vd1943*.deb",
+									"target": "imgswlinux-debian-local/pool/vd1943-dkms/stable/",
 									"props": "deb.distribution=stable;deb.component=main;deb.architecture=armhf;deb.architecture=arm64"
 								}
 							]
@@ -75,7 +77,7 @@ pipeline {
 	post {
 		always {
 			// Remove debian packaging stuff
-			sh 'find . -maxdepth 1 -type f -name "vd1941*" -exec rm -v "{}" \\;'
+			sh 'find . -maxdepth 1 -type f -name "vd1943*" -exec rm -v "{}" \\;'
 
 			// Send mail
 			emailext (

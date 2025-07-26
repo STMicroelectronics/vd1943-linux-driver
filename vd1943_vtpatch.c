@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * ST VD1941 RGB-NIR Image Sensor video timing patch.
+ * ST VD1943 RGB-NIR Image Sensor video timing patch.
  *
  * Copyright (C) 2024, STMicroelectronics SA
  */
 
 #define VT_REVISION 17
 
-static const u8 vd1941_vtpatch[] = {
+static const u8 vd1943_vtpatch[] = {
 	/* gt_ram_pat_content */
 	0xec, 0x88, 0x4b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00, 0x00,
