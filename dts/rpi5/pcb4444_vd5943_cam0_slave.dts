@@ -68,7 +68,7 @@
 						data-lanes = <1 2 3 4>;
 						remote-endpoint = <&csi_ep>;
 						clock-noncontinuous;
-						link-frequencies = /bits/ 64 <650000000>;
+						link-frequencies = /bits/ 64 <500000000>;
 						lane-polarities = <1 1 1 1 1>;
 					};
 				};
