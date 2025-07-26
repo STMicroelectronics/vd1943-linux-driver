@@ -6,10 +6,10 @@ include /usr/share/dpkg/pkg-info.mk
 	dh $@ --with dkms
 
 override_dh_install:
-	dh_install Makefile usr/src/vd1941-$(DEB_VERSION_UPSTREAM)/
-	dh_install dts usr/src/vd1941-$(DEB_VERSION_UPSTREAM)/
-	dh_install Kbuild usr/src/vd1941-$(DEB_VERSION_UPSTREAM)/
-	dh_install *.c usr/src/vd1941-$(DEB_VERSION_UPSTREAM)/
+	dh_install Makefile usr/src/vd1943-$(DEB_VERSION_UPSTREAM)/
+	dh_install dts usr/src/vd1943-$(DEB_VERSION_UPSTREAM)/
+	dh_install Kbuild usr/src/vd1943-$(DEB_VERSION_UPSTREAM)/
+	dh_install *.c usr/src/vd1943-$(DEB_VERSION_UPSTREAM)/
 
 override_dh_dkms:
 	dh_dkms -V $(DEB_VERSION_UPSTREAM)

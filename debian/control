@@ -1,12 +1,12 @@
-Source: vd1941-dkms
+Source: vd1943-dkms
 Section: kernel
 Priority: optional
 Maintainer: Sylvain Petinot <sylvain.petinot@st.com>
 Build-Depends: debhelper (>=10), dkms
 Standards-Version: 4.0.0
 
-Package: vd1941-dkms
+Package: vd1943-dkms
 Architecture: all
 Priority: optional
 Depends: ${misc:Depends}
-Description: vd1941 driver in DKMS format.
+Description: vd1943 driver in DKMS format.
