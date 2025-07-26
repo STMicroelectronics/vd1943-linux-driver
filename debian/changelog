@@ -1,3 +1,9 @@
+vd1943-dkms (0.3.0-1) unstable; urgency=medium
+
+  * New Upstream release
+
+ -- Sylvain Petinot <sylvain.petinot@st.com>  Sat, 26 Jul 2025 16:51:22 +0200
+
 vd1941-dkms (0.2.1-1) unstable; urgency=medium
 
   * New Upstream release
