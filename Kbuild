@@ -1,1 +1,1 @@
-obj-$(CONFIG_DRIVER_VD1943)     += vd1943.o
+obj-m += vd1943.o
