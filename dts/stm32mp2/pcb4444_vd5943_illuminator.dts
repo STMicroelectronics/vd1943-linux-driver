@@ -30,7 +30,7 @@
 						data-lanes = <1 2>;
 						remote-endpoint = <&csi_sink>;
 						clock-noncontinuous;
-						link-frequencies = /bits/ 64 <750000000>;
+						link-frequencies = /bits/ 64 <500000000>;
 						lane-polarities = <1 1 1>;
 					};
 				};
