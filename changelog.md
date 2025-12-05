@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0] - 2025-12-05
+- dts: Decrease stm32mp2 link frequencies
+- dts: Add stm32mp2 device trees
+- Support yocto builds
+- dts: rpi: Rewrite device trees to support CM5
+- dts: rpi: Remove obsolete V4L2 only device trees
+
 ## [0.3.0] - 2025-07-26
 - devicetree: rpi5: reduce mipi freq to improve user experience
 - Allows larger value for Dark Calibration Pedestal control
