@@ -15,3 +15,5 @@
 *.order
 modules.builtin
 Module.symvers
+*.dtb
+*.dtbo
