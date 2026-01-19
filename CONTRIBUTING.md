@@ -1,44 +1,25 @@
-Repository Organization
------------------------
+## Contributing guide
+This document serves as a checklist before contributing to this repository. It includes links to additional information if topics are unclear to you.
 
-- `.` folder contains source code + Makefile
-- `dts` folder contains known to wort devicetree overlays
+This guide mainly focuses on the proper use of Git.
 
-Branching Model
----------------
+### 1. Issue
 
-The proposed Branching Model is a simplified version of [GitFlow](https://datasift.github.io/gitflow/IntroducingGitFlow.html)
+You are welcome to open an issue if you encounter any problems or have suggestions for this project. Before creating a new issue, please check the ST Community forums to see if your question or problem has already been discussed.
 
-```
-                   0.1         0.2                     0.X
-                    |           |                       |
-    *---------------*-----------*-----------------------* master
-     \             /           /                       /
-      *---*---*---*---*---*---*---*---*---*---*---*---* develop
-           \         /                 \         /
-            *---*---* feature-x         *---*---* feature-y
+### 2. Pull Requests
+STMicroelectronics is happy to receive contributions from the community, based on an initial Contributor License Agreement (CLA) procedure.
 
-```
+* If you are an individual writing original source code and you are sure **you own the intellectual property**, then you need to sign an Individual CLA (https://cla.st.com).
+* If you work for a company that wants also to allow you to contribute with your work, your company needs to provide a Corporate CLA (https://cla.st.com) mentioning your GitHub account name.
+* If you are not sure that a CLA (Individual or Corporate) has been signed for your GitHub account, you can check here (https://cla.st.com).
 
-1. `master` and `develop`: the two main branches
+Please note that:
+* The Corporate CLA will always take precedence over the Individual CLA.
+* One CLA submission is sufficient for any project proposed by STMicroelectronics.
 
-    - `master`: the main branch, with "production-ready" content (hold the different release TAGS)
-    - `develop`: contains the latest delivered development change (should be relatively stable)
+#### How to proceed
 
-2. `feature-x` branches
-
-    - Branch off from `develop` and merge back to `develop`
-    - Interesting when multiple developpers are contributing on different feature at the same time
-    - Used to develop new features requiring significant amount of work (i.e. multiple commits)
-    - Depending of the nature of the feature branch, someone may want to keep the historical existence of the branch (use of `--no-ff` argument while merging) or not (default merge behavior).
-
-Release Reminder
-----------------
-
-1. Update Changelog (use git log to get overview of commits since last tag)
-
-    `git log 0.6.0..HEAD --pretty=%s --reverse`
-
-2. Tag 'master' (anotated tag)
-3. Merge branch 'master' to 'debian'
-4. Update debian changelog
+* We recommend to engage first a communication through an issue, in order to present your proposal and just to confirm that it corresponds to a STMicroelectronics domain or scope.
+* Then fork the project to your GitHub account to further develop your contribution. Please use the latest commit version.
+* Please submit one Pull Request for one new feature or proposal. This will facilitate the analysis and the final merge if accepted.
