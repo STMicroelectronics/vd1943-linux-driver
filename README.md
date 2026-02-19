@@ -1,5 +1,12 @@
 # ST-VD1943 Linux driver
 
+## Supported Devices
+
+This driver supports the following devices :
+
+- VD1943: RGB-IR sensor
+- VD5943: Monochrome sensor
+
 ## Installation
 
 ### Driver
