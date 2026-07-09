@@ -31,11 +31,12 @@
 #endif
 
 #if KERNEL_VERSION(6, 9, 0) > LINUX_VERSION_CODE
-int vd1943_link_freq_to_bitmap(struct device *dev, const u64 *fw_link_freqs,
-			       unsigned int num_of_fw_link_freqs,
-			       const s64 *driver_link_freqs,
-			       unsigned int num_of_driver_link_freqs,
-			       unsigned long *bitmap)
+static int vd1943_link_freq_to_bitmap(struct device *dev,
+				      const u64 *fw_link_freqs,
+				      unsigned int num_of_fw_link_freqs,
+				      const s64 *driver_link_freqs,
+				      unsigned int num_of_driver_link_freqs,
+				      unsigned long *bitmap)
 {
 	unsigned int i;
 
