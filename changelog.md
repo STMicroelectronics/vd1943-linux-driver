@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.5.0] - 2025-07-27
+- Fix libcamera stream with global shutter RGBNir version
+- dts: Factorize rpi device trees
+- Fix compilation warning
+
 ## [0.4.0] - 2025-12-05
 - dts: Decrease stm32mp2 link frequencies
 - dts: Add stm32mp2 device trees
