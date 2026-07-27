@@ -29,6 +29,8 @@ jobs:
   Package:
     needs: build
     runs-on: ubuntu22
+    container:
+      image: artifactory.st.com/imgswlinux-docker/debian_driver_pkg_x86:26.04
     if: github.ref == 'refs/heads/debian'
     defaults:
       run:
