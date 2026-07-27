@@ -1,7 +1,6 @@
 #
 # Normal rules
 #
-.*
 *.o
 *.o.*
 *.a
@@ -15,3 +14,5 @@
 *.order
 modules.builtin
 Module.symvers
+*.dtb
+*.dtbo

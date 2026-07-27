@@ -6,7 +6,6 @@
 .gitattributes export-ignore
 .github export-ignore
 .clang-format export-ignore
-Jenkinsfile export-ignore
 debian export-ignore
 CONTRIBUTING.md export-ignore
 

@@ -31,11 +31,12 @@
 #endif
 
 #if KERNEL_VERSION(6, 9, 0) > LINUX_VERSION_CODE
-int vd1943_link_freq_to_bitmap(struct device *dev, const u64 *fw_link_freqs,
-			       unsigned int num_of_fw_link_freqs,
-			       const s64 *driver_link_freqs,
-			       unsigned int num_of_driver_link_freqs,
-			       unsigned long *bitmap)
+static int vd1943_link_freq_to_bitmap(struct device *dev,
+				      const u64 *fw_link_freqs,
+				      unsigned int num_of_fw_link_freqs,
+				      const s64 *driver_link_freqs,
+				      unsigned int num_of_driver_link_freqs,
+				      unsigned long *bitmap)
 {
 	unsigned int i;
 
@@ -338,6 +339,7 @@ static const struct vd1943_config vdx941_configs[2][2][4] = {
 		/* VD1943_MODEL_VD1943 : RGBNir variant */
 		{
 			/* Global Shutter modes */
+#ifdef ENABLE_NIR
 			{
 				.sensor_conf = VD1943_CONFIG_GS_IR_RAW8,
 				.mbus_code = MEDIA_BUS_FMT_Y8_1X8,
@@ -346,6 +348,7 @@ static const struct vd1943_config vdx941_configs[2][2][4] = {
 				.sensor_conf = VD1943_CONFIG_GS_IR_RAW10,
 				.mbus_code = MEDIA_BUS_FMT_Y10_1X10,
 			},
+#else
 			{
 				.sensor_conf = VD1943_CONFIG_GS_RGB_RAW8,
 				.mbus_code = MEDIA_BUS_FMT_SGBRG8_1X8,
@@ -354,6 +357,7 @@ static const struct vd1943_config vdx941_configs[2][2][4] = {
 				.sensor_conf = VD1943_CONFIG_GS_RGB_RAW10,
 				.mbus_code = MEDIA_BUS_FMT_SGBRG10_1X10,
 			},
+#endif
 			/* TODO : Custom mbus codes break libcamera apps */
 			/*{
 			 *	.sensor_conf = VD1943_CONFIG_GS_NATIVE_RAW8,

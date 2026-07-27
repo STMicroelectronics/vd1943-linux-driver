@@ -1,5 +1,12 @@
 # ST-VD1943 Linux driver
 
+## Supported Devices
+
+This driver supports the following devices :
+
+- VD1943: RGB-IR sensor
+- VD5943: Monochrome sensor
+
 ## Installation
 
 ### Driver
@@ -20,6 +27,17 @@ Resolve modules dependencies.
 
 ```
 sudo depmod -a
+```
+
+#### Near infrared
+
+> [!IMPORTANT]
+> Because of a limitation in libcamera, the driver initially restricts near infrared mode behind a compile flag.
+
+Enable the near infrared mode instead of the RGB mode by compiling the driver with :
+
+```
+make CFLAGS_MODULE="-DENABLE_NIR"
 ```
 
 ### Device tree
