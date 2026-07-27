@@ -1,3 +1,9 @@
+vd1943-dkms (0.5.0-1) unstable; urgency=medium
+
+  * New upstream release
+
+ -- Benjamin Mugnier <benjamin.mugnier@st.com>  Mon, 27 Jul 2026 14:44:46 +0200
+
 vd1943-dkms (0.4.0-1) unstable; urgency=medium
 
   * New upstream release
